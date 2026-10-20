@@ -409,7 +409,7 @@ four synthetic article HTML files and local PNG images from `app/dev_site/`:
 | `one-tall-image` | Select the 720 × 1800 lesson graphic |
 | `thumbnail-and-tall` | Select the tall article image rather than the OG thumbnail |
 | `no-lesson-image` | Retain article metadata and show `no_lesson_image` |
-| `malformed-data` | Safely ignore broken JSON-LD/Fusion data and show `no_lesson_image` |
+| `malformed-data` | Safely reject unusable malformed JSON-LD/Fusion data with `invalid_article_data` |
 
 Start it from the repository root using the existing virtual environment:
 
@@ -450,6 +450,33 @@ it is explicitly `true` before app creation; otherwise the entire
 process after changing it. No test/debug routes appear in the OpenAPI schema.
 `.env.example` documents this flag but is not auto-loaded. Run focused checks with
 `.venv/bin/python -m pytest tests/test_dev_site.py -q`.
+
+### End-to-end fixture pipeline test
+
+Run `.venv/bin/python -m pytest tests/test_local_fixture_e2e.py -q`. This exercises
+the public scrape API, actual fixture-site HTML routes, article fetching/parsing,
+the original PNG file, real MIME/byte decoding, mocked OCR, six-field lesson
+post-processing and saved-response retrieval. It requires neither a running
+Uvicorn server nor PostgreSQL nor OCR language models; persistence uses the
+existing test double. The OCR text is controlled synthetic output, not an OCR
+accuracy assertion about the image pixels.
+
+Only the pytest harness installs a fail-closed HTTPX transport. Logical approved
+article URLs map to the fixture application's in-process local ASGI routes; the
+fixture image metadata namespace is approved only inside that test's monkeypatch
+scope and maps to local PNG routes. It uses the existing fixture files unchanged,
+never resolves or requests the publisher. DNS, network socket connections, default
+HTTP transports and real OCR initialization are forbidden, with a nonexistent
+model directory configured to catch accidental dependencies. Unlisted hosts,
+paths and requests have no network fallback.
+
+There is **no production localhost allowance** and no new local-scrape endpoint
+or environment switch. Even during the test, submitting a localhost/private URL
+to `/api/v1/scrape` returns 422 before fetching; a production app has no fixture
+routes. Missing images return `422 no_lesson_image`. Unusable malformed JSON-LD
+with no valid page data or selected/fallback image returns
+`422 invalid_article_data`. Recoverable malformed optional metadata still permits
+a valid article image or OG fallback.
 
 ## Response
 
@@ -965,7 +992,7 @@ Errors use an `error` object with `code`, `message`, and `details`:
 
 | Status | Codes |
 | --- | --- |
-| 422 | `validation_error`, `unsafe_url`, `unsafe_destination`, `invalid_article`, `no_lesson_image` |
+| 422 | `validation_error`, `unsafe_url`, `unsafe_destination`, `invalid_article`, `invalid_article_data`, `no_lesson_image` |
 | 403 | `blocked_page` |
 | 502 | `upstream_http_error`, `upstream_network_error`, `redirect_error`, `html_too_large`, `unsupported_encoding` |
 | 504 | `article_timeout` |

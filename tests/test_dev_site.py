@@ -119,13 +119,13 @@ def test_article_debug_shows_real_metadata_and_tall_selection(local_site, slug, 
             assert decoded.size == (int(image["width"]), int(image["height"]))
 
 
-@pytest.mark.parametrize("slug", ["no-lesson-image", "malformed-data"])
-def test_error_fixtures_still_render_metadata_and_concise_parser_error(local_site, slug):
+@pytest.mark.parametrize("slug,code", [("no-lesson-image", "no_lesson_image"), ("malformed-data", "invalid_article_data")])
+def test_error_fixtures_still_render_metadata_and_concise_parser_error(local_site, slug, code):
     response = local_site.get(f"{PREFIX}/articles/{slug}")
     assert response.status_code == 200  # The fixture page is valid; its data intentionally fails.
     page = Page(response.text)
     assert page.result["status"] == "error"
-    assert page.result["error"]["code"] == "no_lesson_image"
+    assert page.result["error"]["code"] == code
     assert page.result["lesson_image"] is None and not page.images
     assert page.result["article"]["title"]
     if slug == "malformed-data":

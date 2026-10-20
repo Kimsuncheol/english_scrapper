@@ -62,11 +62,11 @@ def test_og_fallback_is_explicit():
     assert len(result.article_images) == 1
 
 
-@pytest.mark.parametrize("filename", ["no_image.html", "malformed_fusion.html"])
-def test_no_lesson_image_has_explicit_error(filename):
+@pytest.mark.parametrize("filename,code", [("no_image.html", "no_lesson_image"), ("malformed_fusion.html", "invalid_article_data")])
+def test_no_lesson_image_has_explicit_error(filename, code):
     with pytest.raises(ArticleFetchError) as error:
         parse_article_html(sample(filename), URL)
-    assert error.value.code == "no_lesson_image"
+    assert error.value.code == code
     assert error.value.status_code == 422
 
 
@@ -148,6 +148,19 @@ def test_unsafe_image_metadata_is_not_selected(value):
 def test_invalid_fusion_can_fall_back_without_executing_javascript():
     html = sample("malformed_fusion.html").replace("</head>", '<meta property="og:image" content="https://images.example.test/fallback.jpg"></head>')
     assert parse_article_html(html, URL).lesson_image.is_fallback
+
+
+def test_malformed_optional_jsonld_does_not_hide_valid_article_image():
+    html = html_with_elements([{"type": "image", "url": "https://images.example.test/lesson.jpg", "width": 650, "height": 1444}])
+    html += '<script type="application/ld+json">{broken JSON}</script>'
+    assert str(parse_article_html(html, URL).lesson_image.url).endswith("/lesson.jpg")
+
+
+def test_jsonld_null_is_not_reported_as_malformed_json():
+    html = '<title>Empty article</title><script type="application/ld+json"> null </script>'
+    with pytest.raises(ArticleFetchError) as error:
+        parse_article_html(html, URL)
+    assert error.value.code == "no_lesson_image"
 
 
 def test_malformed_nested_shapes_do_not_crash():

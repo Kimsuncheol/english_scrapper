@@ -84,6 +84,7 @@ class PageHTML(HTMLParser):
         self.script_type = None
         self.script_parts = []
         self.jsonld = []
+        self.invalid_jsonld = False
         self.global_content = {}
         self.content_cache = {}
 
@@ -118,6 +119,8 @@ class PageHTML(HTMLParser):
                 value = decode_json(script)
                 if value is not None:
                     self.jsonld.append(value)
+                elif script.strip() != "null":
+                    self.invalid_jsonld = True
             elif self.script_type in {"text/javascript", "application/javascript", "module"}:
                 if not self.global_content:
                     self.global_content = fusion_content(script)
@@ -338,5 +341,10 @@ def parse_article_html(html: str, source_url: str, config: ImageSelectionConfig 
             height=dimension(page.meta.get("og:image:height")),
             alt_text=text(page.meta.get("og:image:alt")), source="og:image", is_fallback=True,
         )
-    selected = select_lesson_image(images, fallback, config or ImageSelectionConfig())
+    try:
+        selected = select_lesson_image(images, fallback, config or ImageSelectionConfig())
+    except ArticleFetchError as exc:
+        if exc.code == "no_lesson_image" and page.invalid_jsonld and not page.jsonld and not page.global_content:
+            raise ArticleFetchError("invalid_article_data", "Article data is malformed and no usable lesson image was found.", 422) from exc
+        raise
     return ParsedArticle(article=metadata, lesson_image=selected, article_images=images)

@@ -20,3 +20,10 @@ absent by default and does not appear in the API schema.
 Use the repository README's local test website instructions to start it. This
 playground does not initialize OCR, write to PostgreSQL, or relax production
 SSRF restrictions.
+
+The separate `tests/test_local_fixture_e2e.py` harness routes allowed logical
+article/image requests to these real HTML/PNG routes using an in-process ASGI
+transport. It tests the real fetch/decode pipeline with mocked OCR and memory
+persistence; it adds no production localhost exception and needs no running
+server, model download or external requests. Unusable malformed data reports
+`invalid_article_data`; a valid text-only article reports `no_lesson_image`.
