@@ -48,10 +48,29 @@ class LessonImageMetadata(BaseModel):
     download_url: HttpUrl | None = None
 
 
+class BoundingBox(BaseModel):
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+
+
+class OCRRegion(BaseModel):
+    text: str
+    confidence: float = Field(ge=0, le=1)
+    bounding_box: BoundingBox
+    low_confidence: bool = False
+
+
 class OCRText(BaseModel):
     raw_text: str
     korean_text: str | None = None
     english_text: str | None = None
+    engine: str = "tesseract"
+    status: Literal["ok", "low_confidence", "empty"] = "ok"
+    mean_confidence: float | None = Field(default=None, ge=0, le=1)
+    regions: list[OCRRegion] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ScrapeResponse(BaseModel):

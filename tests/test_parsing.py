@@ -173,13 +173,13 @@ def test_jsonld_article_matches_canonical_instead_of_related_story():
     assert parse_article_html(html, URL).article.title == "오늘의 영어: Hello {world}"
 
 
-def test_parse_api_returns_metadata_and_no_ocr(monkeypatch, mock_image_download):
+def test_parse_api_returns_metadata_and_ocr(monkeypatch, mock_image_download, mock_ocr):
     monkeypatch.setattr(scrape, "fetch_article", AsyncMock(return_value=FetchedArticle(
         url=URL, html=sample("fusion_lesson.html"), title="Lesson"
     )))
     response = TestClient(app).post("/api/v1/scrape", json={"article_url": URL})
     assert response.status_code == 200
-    assert response.json()["ocr"] is None
+    assert response.json()["ocr"]["raw_text"] == "안녕하세요 Hello"
     assert response.json()["article"]["section"] == "Education"
     assert len(response.json()["article_images"]) == 3
 

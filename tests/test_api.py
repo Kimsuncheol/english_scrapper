@@ -16,7 +16,7 @@ def test_health():
     assert response.json() == {"status": "ok"}
 
 
-def test_valid_scrape_returns_parsed_article_without_ocr(monkeypatch, mock_image_download):
+def test_valid_scrape_returns_parsed_article_with_ocr(monkeypatch, mock_image_download, mock_ocr):
     from pathlib import Path
     from app.services.article import FetchedArticle
     html = (Path(__file__).parent / "fixtures" / "fusion_lesson.html").read_text()
@@ -27,7 +27,8 @@ def test_valid_scrape_returns_parsed_article_without_ocr(monkeypatch, mock_image
         "/api/v1/scrape", json={"article_url": "https://www.chosun.com/example/"}
     )
     assert response.status_code == 200
-    assert response.json()["ocr"] is None
+    assert response.json()["ocr"]["raw_text"] == "안녕하세요 Hello"
+    mock_ocr.assert_awaited_once_with(b"test-image")
     assert response.json()["lesson_image"]["is_fallback"] is False
 
 
@@ -84,5 +85,5 @@ def test_route_delegates_to_service_and_serializes_contract(monkeypatch):
 def test_openapi_documents_success_and_error_contracts():
     schema = client.get("/openapi.json").json()
     responses = schema["paths"]["/api/v1/scrape"]["post"]["responses"]
-    for status, model in [("200", "ScrapeResponse"), ("422", "ErrorResponse"), ("403", "ErrorResponse"), ("502", "ErrorResponse"), ("504", "ErrorResponse")]:
+    for status, model in [("200", "ScrapeResponse"), ("422", "ErrorResponse"), ("403", "ErrorResponse"), ("502", "ErrorResponse"), ("504", "ErrorResponse"), ("500", "ErrorResponse"), ("503", "ErrorResponse")]:
         assert responses[status]["content"]["application/json"]["schema"]["$ref"].endswith(model)

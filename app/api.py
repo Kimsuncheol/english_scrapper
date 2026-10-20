@@ -20,7 +20,9 @@ async def health() -> HealthResponse:
         422: {"model": ErrorResponse, "description": "Invalid request, article, or missing lesson image"},
         403: {"model": ErrorResponse, "description": "Publisher blocked access"},
         502: {"model": ErrorResponse, "description": "Publisher fetch failed"},
-        504: {"model": ErrorResponse, "description": "Publisher fetch timed out"},
+        504: {"model": ErrorResponse, "description": "Fetch or OCR processing deadline exceeded"},
+        500: {"model": ErrorResponse, "description": "OCR recognition failed"},
+        503: {"model": ErrorResponse, "description": "OCR unavailable or busy"},
     },
 )
 async def scrape(request: ScrapeRequest) -> ScrapeResponse:

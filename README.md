@@ -2,12 +2,28 @@
 
 FastAPI service that safely fetches Chosun.com articles and extracts article
 metadata and lesson-image URLs, then downloads and validates the selected image
-in memory. OCR is not implemented: successful requests return metadata with
-`ocr: null`. No files are written at runtime.
+in memory. Tesseract recognizes Korean and English text and returns word regions
+with confidence and pixel bounding boxes. No request files are written at runtime.
 
 ## Run locally
 
-Use Python 3.12 from the repository root:
+Use Python 3.12. Install the native runtime and Korean/English language data
+before installing Python requirements. On Debian/Ubuntu:
+
+```sh
+sudo apt-get update
+sudo apt-get install libtesseract-dev libleptonica-dev g++ pkg-config tesseract-ocr-eng tesseract-ocr-kor
+export TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
+```
+
+On macOS, `brew install tesseract tesseract-lang pkgconf` supplies the runtime,
+headers, and languages (the language formula includes more than the two needed).
+Set `TESSDATA_PREFIX` to `$(brew --prefix)/share/tessdata` when using Homebrew.
+Alternatively, provision only `kor.traineddata` and `eng.traineddata` from the
+linked `tessdata_fast` repository in a local directory and point
+`TESSDATA_PREFIX` at that directory. Do this during setup, never per request.
+
+Then, from the repository root:
 
 ```sh
 python3.12 -m venv .venv
@@ -41,8 +57,12 @@ A successful scrape returns HTTP 200:
 - `article_images`: all valid image URL candidates in body content order,
   including those below selection size thresholds. Paths such as `[2]` or
   `[0, 1]` identify indices in body or nested gallery `content_elements`.
-- `ocr`: `null` until OCR is implemented. The OCRText schema remains available
-  for future raw, Korean, and English output.
+- `ocr`: combined `raw_text`, word `regions`, `mean_confidence`, `status`, `engine`,
+  and `warnings`. Each region has `text`, `confidence` (0–1), `low_confidence`,
+  and `bounding_box: {x, y, width, height}` in original-image pixels from the top
+  left. Regions retain Tesseract reading order; words on the same line are joined.
+  `korean_text`/`english_text` remain `null`: recognition uses both languages
+  together, and reliable language/translation separation is not implemented.
 
 Metadata comes from Article/NewsArticle JSON-LD (including arrays and `@graph`)
 with Fusion page-data fallbacks. Valid HTML canonical links take priority for
@@ -92,10 +112,11 @@ app/
   api.py               # Thin HTTP routes
   schemas.py           # Request, article, image, OCR, and error contracts
   services/
-    scrape.py          # Fetch/parse/download orchestration
+    scrape.py          # Fetch/parse/download/OCR orchestration
     article.py         # Bounded async HTML fetching and article checks
     parsing.py         # Pure metadata parsing and configurable image selection
     images.py          # In-memory download, format and pixel validation
+    ocr.py             # Replaceable engine interface and process-wide OCR service
     urls.py            # HTTPS article-host policy
     errors.py          # Shared application errors
 tests/
@@ -104,6 +125,7 @@ tests/
   test_article.py
   test_parsing.py
   test_images.py
+  test_ocr.py
 ```
 
 ## Tests
@@ -147,9 +169,9 @@ Errors use an `error` object with `code`, `message`, and `details`:
 
 `download_lesson_image(parsed.lesson_image)` returns a `DownloadedImage` containing
 `data: bytes` and updated `metadata: LessonImageMetadata`, entirely in memory.
-The HTTP API exposes the metadata, not raw image bytes or a local file path.
-`article_images` retains the original unverified candidate metadata. OCR is not
-attempted and downloaded bytes are released after the request completes.
+The HTTP API exposes metadata and OCR results, not raw image bytes or a local
+file path. `article_images` retains the original unverified candidate metadata.
+The downloaded bytes are passed directly to OCR and released after the request.
 
 The initial URL comes from the parser-selected article image, including an
 explicitly marked OG fallback. Only HTTPS on port 443 is allowed, with no embedded
@@ -199,16 +221,136 @@ Image errors use the same `error` envelope:
 | 502 | `image_http_error`, `image_network_error`, `image_redirect_error`, `image_too_large`, `image_encoding_error` |
 | 504 | `image_timeout` |
 
-## Render Free
+## OCR engine comparison and choice
 
-Deploy as a Python Web Service using Python 3.12:
+The repository uses async FastAPI handlers, Pillow, and bounded image buffers.
+Render Free currently provides 512 MB RAM and 0.1 CPU, no GPU, and ephemeral
+runtime storage. Models must be part of the build, not an assumed persistent
+runtime cache. [Render compute plans](https://render.com/docs/compute-plans),
+[Free service limitations](https://render.com/docs/free).
 
-- Build: `pip install -r requirements.txt`
-- Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1`
-- Health check: `/health`
+This is a deployment comparison, not an accuracy benchmark. Disk sizes exclude
+frameworks, shared libraries, pixel buffers, and inference working memory. The
+startup/RAM comparisons below are expectations from architecture; they are not
+measurements on Render.
 
-Select the Free instance and omit `--reload`. There is no database, background
-worker, OCR model, browser, or runtime storage requirement. Render's filesystem
-is ephemeral. Downloads use bounded in-memory bytes and never depend on files
-from earlier requests. Keep one worker and measure memory/latency before
-adding OCR; bound image sizes, decoded pixels, runtime, and concurrent work.
+| Engine | Model size for a practical Korean/English setup | System/runtime requirements | CPU, RAM, startup and Free suitability |
+| --- | --- | --- | --- |
+| PaddleOCR | A documented PP-OCRv5 mobile option uses a 4.7 MB detector plus a 14 MB Korean recognizer that also supports English; newer/model variants differ. | PaddlePaddle native inference runtime, NumPy/OpenCV and platform-dependent shared libraries; no GPU required for CPU mode. Optional orientation/unwarping adds models. | Compact weights do not imply compact total RSS. Framework import, detector/recognizer initialization, and activations add CPU/RAM and cold-start work. Possible with careful tuning, but not the smallest deployment here and not validated in 512 MB. |
+| EasyOCR | Published CRAFT ZIP is 73.7 MB plus `korean_g2` ZIP at 14.2 MB (about 88 MB compressed); extracted weights are larger. This excludes PyTorch and other dependencies. | PyTorch/torchvision, OpenCV-headless, NumPy/SciPy and other native wheels; CPU mode uses `gpu=False`. Pre-provision weights and disable downloads for deployment. | Two neural networks plus the PyTorch runtime add memory/import/model-load cost. CPU inference is supported, but a 512 MB service is a risky default without profiling. |
+| **Tesseract (chosen)** | `tessdata_fast`: Korean about 1.6 MB + English about 3.92 MB (about 5.5 MB total language data). | Native Tesseract/Leptonica plus the small `tesserocr` binding; existing Pillow supplies in-memory pixels. No Torch/Paddle, CUDA, or detector checkpoint. | Smallest practical total dependency/model footprint for this repository; one CPU engine and modest initialization work. CPU time and layout accuracy still depend on image size. Most plausible Free baseline, not a measured performance guarantee. |
+
+Sources: [PaddleOCR model tables](https://www.paddleocr.ai/main/en/version3.x/pipeline_usage/OCR.html),
+[EasyOCR model hub](https://jaided.ai/easyocr/modelhub/),
+[CRAFT release assets](https://github.com/JaidedAI/EasyOCR/releases/expanded_assets/pre-v1.1.6),
+[Korean G2 release assets](https://github.com/JaidedAI/EasyOCR/releases/expanded_assets/v1.3),
+[EasyOCR dependencies](https://github.com/JaidedAI/EasyOCR/blob/master/requirements.txt),
+[Tesseract Korean fast data](https://github.com/tesseract-ocr/tessdata_fast/blob/main/kor.traineddata),
+[Tesseract English fast data](https://github.com/tesseract-ocr/tessdata_fast/blob/main/eng.traineddata),
+[fast-model tradeoffs](https://tesseract-ocr.github.io/tessdoc/tessdata_fast.html).
+
+Tesseract is selected for deployment size and operational simplicity, not a claim
+of superior Korean recognition. Neural engines may handle complex graphics or
+rotated text better. Evaluate representative lesson graphics before making an
+accuracy claim. Keep original regions and confidence so uncertain text can be
+reviewed. Confidence is a native engine score normalized to 0–1, not a calibrated
+probability of correctness.
+
+`tesserocr.PyTessBaseAPI` is used instead of a per-request CLI wrapper so both
+language models are loaded **once per process**. The `OCREngine` protocol exposes
+`recognize(bytes) -> OCRText` and `close()`; a replacement engine can be supplied
+to `OCRService(factory=...)`. The Tesseract adapter accepts only verified raster
+formats, passes Pillow pixel buffers in memory, and clears request images/results
+while retaining its language models. It creates no image or TSV files.
+[tesserocr API and reuse](https://github.com/sirfz/tesserocr).
+
+## OCR lifecycle, limits and results
+
+FastAPI lifespan initializes the process-wide service before serving requests.
+Direct service use initializes lazily under the same lock. Initialization failures
+are logged and cached, never retried or silently downgraded to English-only.
+Scraping returns `503 ocr_unavailable`; restart after fixing libraries/model paths.
+`/health` remains a liveness check, not a guarantee that OCR is available.
+The binding is imported on the main ASGI thread because its `cysignals` dependency
+registers signal handlers; model initialization and OCR run in worker threads.
+Native resources are released at process exit.
+
+OCR runs in a worker thread, with one engine call at a time; competing calls
+receive `503 ocr_busy` rather than an unbounded OCR queue. `OMP_THREAD_LIMIT=1`
+limits native OpenMP threads in the supplied image. State is cleared between
+images to avoid carrying recognition adaptation across requests.
+
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| `TESSDATA_PREFIX` | Auto-detect known system paths; explicit in Docker | Directory containing both `kor.traineddata` and `eng.traineddata` |
+| `OCR_MAX_PIXELS` | 4,000,000 | Reject larger inputs with `422 ocr_image_too_large` before native OCR |
+| `OCR_MIN_CONFIDENCE` | 0.5 | Flag uncertain regions and low average confidence |
+| `OCR_TIMEOUT_MS` | 30,000 | Native cooperative recognition deadline |
+
+The OCR byte cap is 10 MiB via `OCRConfig.max_bytes`. The OCR pixel limit is
+intentionally lower than the downloader's 16-million-pixel decode limit: native
+OCR needs additional image and segmentation buffers. Large lessons may be
+rejected; increasing this limit without profiling can exhaust Free memory. The
+service does not resize images silently, so returned boxes use original pixels.
+The native deadline is cooperative and does not hard-kill the process; recognition
+failure or deadline cancellation returns `504 ocr_recognition_failed`.
+
+Low-confidence regions are retained and flagged. `status: low_confidence` means
+the mean valid word confidence is below the threshold; individual low scores may
+also appear with overall `status: ok`, accompanied by a warning. No valid words
+returns HTTP 200 with `status: empty`, `raw_text: ""`, empty regions, null mean
+confidence, and a warning. These outcomes preserve article/image metadata.
+Malformed native output or unexpected engine errors return `500 ocr_failed`;
+invalid OCR inputs return `422 ocr_invalid_image`.
+
+Normalization tests use mocked TSV/API outputs and require no downloaded models.
+They cover Korean/English words, boxes, confidence filtering, empty output,
+initialization caching, request cleanup, and concurrent admission. A real local
+macOS smoke check also recognized `안녕하세요 Hello English`
+from a generated image on two successive calls through the same native engine.
+This confirms bilingual engine wiring, not accuracy on publisher graphics. Render
+peak RSS/latency and lesson accuracy still require deployment profiling.
+
+## Render Free: build and start
+
+Use a **Docker Web Service** with the repository's `Dockerfile`, select **Free**,
+and leave the Docker start command unset so the image's CMD runs. A Python-only
+`pip install` Render build is insufficient for the native libraries and models.
+No paid instance, persistent disk, or GPU is configured.
+
+The multi-stage image uses `python:3.12-slim-bookworm`:
+
+1. Builder installs `g++`, `pkg-config`, `libtesseract-dev`, and
+   `libleptonica-dev`, then builds pinned Python wheels. `tesserocr` is compiled
+   against Debian libraries (`--no-binary=tesserocr`) to match the final image.
+2. Runtime installs `libtesseract5`, `liblept5`, `tesseract-ocr-eng`, and
+   `tesseract-ocr-kor` with `--no-install-recommends`. Debian packages supply fast
+   language data in `/usr/share/tesseract-ocr/5/tessdata`.
+3. Runtime installs the built wheels, copies only application code, and runs a
+   build-time assertion that both languages initialize. Build fails if missing.
+4. The unprivileged runtime starts exactly one worker:
+
+```sh
+uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --workers 1
+```
+
+`PORT` defaults to 8000 in the Docker CMD for local use. Render supplies its port.
+Set health check path to `/health`; no `--reload` or multiworker deployment.
+The image sets `TESSDATA_PREFIX` and `OMP_THREAD_LIMIT=1`. Models and dependencies
+are installed during build; requests perform no model downloads. Immutable image
+files survive redeployment as part of the image, with no reliance on writable
+filesystem state.
+
+Local container commands:
+
+```sh
+docker build -t english-scrapper .
+docker run --rm -p 8000:8000 -e PORT=8000 english-scrapper
+```
+
+The host used for implementation has no Docker executable, so this container has
+not been built or measured here. The build-time initialization assertion provides
+an explicit check when building it. Render's 0.1 CPU allocation may make OCR slow
+or trigger deadlines even when memory fits. Free instances also sleep after idle
+periods, causing cold starts. Profile a representative lesson before increasing
+limits; otherwise reject oversized input or move heavy OCR to a separate service.
