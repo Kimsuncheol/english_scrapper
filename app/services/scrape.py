@@ -3,6 +3,7 @@
 from pydantic import HttpUrl
 
 from app.schemas import ScrapeResponse
+from app.services.article import fetch_article
 
 
 class ScrapingNotImplementedError(Exception):
@@ -10,5 +11,6 @@ class ScrapingNotImplementedError(Exception):
 
 
 async def scrape_article(article_url: HttpUrl) -> ScrapeResponse:
-    """Service stub: makes no network requests and writes no files."""
-    raise ScrapingNotImplementedError("Article scraping and OCR are not implemented yet.")
+    """Fetch HTML now; image extraction and OCR remain unimplemented."""
+    await fetch_article(str(article_url))
+    raise ScrapingNotImplementedError("Lesson image extraction and OCR are not implemented yet.")

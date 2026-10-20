@@ -2,37 +2,22 @@
 
 from datetime import datetime
 from typing import Literal
-from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+
+from app.services.urls import validate_article_url
 
 
 class ScrapeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    article_url: HttpUrl = Field(description="Absolute HTTP(S) Chosun.com article URL")
+    article_url: HttpUrl = Field(description="HTTPS article URL on chosun.com or www.chosun.com")
 
     @field_validator("article_url", mode="before")
     @classmethod
     def require_absolute_url(cls, value: object) -> object:
-        if isinstance(value, str):
-            try:
-                parts = urlsplit(value)
-                valid = parts.scheme.lower() in {"http", "https"} and bool(parts.netloc)
-            except ValueError:
-                valid = False
-            if not valid:
-                raise ValueError("article_url must be an absolute HTTP or HTTPS URL")
-        return value
-
-    @field_validator("article_url")
-    @classmethod
-    def require_chosun_url(cls, value: HttpUrl) -> HttpUrl:
-        host = (value.host or "").lower()
-        if host != "chosun.com" and not host.endswith(".chosun.com"):
-            raise ValueError("article_url must use chosun.com or a subdomain of chosun.com")
-        if value.username is not None or value.password is not None:
-            raise ValueError("article_url must not include credentials")
+        if isinstance(value, (str, HttpUrl)):
+            return validate_article_url(value)
         return value
 
 

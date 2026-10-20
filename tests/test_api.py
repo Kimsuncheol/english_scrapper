@@ -16,7 +16,8 @@ def test_health():
     assert response.json() == {"status": "ok"}
 
 
-def test_valid_scrape_is_explicitly_not_implemented():
+def test_valid_scrape_is_explicitly_not_implemented(monkeypatch):
+    monkeypatch.setattr(scrape_service, "fetch_article", AsyncMock())
     response = client.post(
         "/api/v1/scrape", json={"article_url": "https://www.chosun.com/example/"}
     )
