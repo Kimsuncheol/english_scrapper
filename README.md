@@ -401,8 +401,11 @@ status and Content-Type before decoding JSON after a Render cold start.
 
 ## Local fixture test website
 
-The existing FastAPI app includes an opt-in, offline parser playground. It serves
-four synthetic article HTML files and local PNG images from `app/dev_site/`:
+The existing FastAPI app includes an opt-in, offline parser playground. Set
+**`ENABLE_TEST_SITE=true` before starting the app** to register its routes.
+The default is false, and `.env.example` is documentation only: dotenv files are
+not automatically loaded. The site serves four synthetic article HTML files and
+local PNG images from `app/dev_site/`:
 
 | Fixture | Expected parser result |
 | --- | --- |
@@ -432,6 +435,46 @@ selection, resized URLs and any parsing error. The image-selection result links
 to its local PNG file. The malformed page also shows zero parsed JSON-LD documents
 and no usable Fusion data, while retaining title/source fallbacks.
 
+### Curl examples: fixture pages and scrape URL validation
+
+With the development server above running, use a second terminal:
+
+```sh
+BASE_URL=http://127.0.0.1:8000
+
+# These GETs return local HTML with visible parser/debug output.
+curl --fail --show-error "$BASE_URL/_dev/test-site/"
+curl --fail --show-error "$BASE_URL/_dev/test-site/articles/thumbnail-and-tall"
+curl --fail --show-error "$BASE_URL/_dev/test-site/articles/no-lesson-image"
+curl --fail --show-error "$BASE_URL/_dev/test-site/articles/malformed-data"
+
+# Check that the original local PNG is served, without printing binary bytes.
+curl --fail --show-error --output /dev/null \
+  --write-out '%{http_code} %{content_type}\n' \
+  "$BASE_URL/_dev/test-site/assets/lesson.png"
+# Expected: 200 image/png
+
+# Exercise the public scrape endpoint against every local fixture URL.
+# Every POST intentionally returns HTTP 422 with error.code=validation_error.
+for fixture in one-tall-image thumbnail-and-tall no-lesson-image malformed-data; do
+  curl --include --show-error \
+    --request POST "$BASE_URL/api/v1/scrape" \
+    --header 'Content-Type: application/json' \
+    --data "{\"article_url\":\"$BASE_URL/_dev/test-site/articles/$fixture\"}" \
+    --write-out '\n'
+done
+```
+
+Enabling fixture routes **does not permit localhost scraping**. These POSTs test
+URL rejection, so even the missing/malformed fixtures return `validation_error`
+before fetching. A normal server cannot return a successful fixture scrape from
+curl. Use the end-to-end pytest command below for a 200 pipeline response and for
+the distinct `no_lesson_image` / `invalid_article_data` processing errors.
+
+Do not substitute the fixtures' synthetic `https://www.chosun.com/test-fixtures/…`
+canonical URLs in curl: outside pytest they are treated as real publisher URLs,
+not redirected to the local fixture server.
+
 No Chosun requests, database access, OCR initialization or runtime file generation
 are needed to browse this site. The Chosun-shaped canonical URLs and `example.test`
 image URLs inside metadata are inert synthetic identifiers used by the parser;
@@ -453,7 +496,21 @@ process after changing it. No test/debug routes appear in the OpenAPI schema.
 
 ### End-to-end fixture pipeline test
 
-Run `.venv/bin/python -m pytest tests/test_local_fixture_e2e.py -q`. This exercises
+From the repository root, run:
+
+```sh
+ENABLE_TEST_SITE=false SCRAPE_ENABLED=false SCRAPE_IN_PROCESS=false \
+  .venv/bin/python -m pytest tests/test_local_fixture_e2e.py -q
+
+# Optional focused checks: successful full responses or article-data errors.
+.venv/bin/python -m pytest tests/test_local_fixture_e2e.py \
+  -k local_site_drives_complete_real_pipeline -q
+.venv/bin/python -m pytest tests/test_local_fixture_e2e.py \
+  -k fixture_failures_stop_before_download -q
+```
+
+The test explicitly enables an isolated fixture app, while its public API app has
+test routes disabled. There is no need to enable a running website first. It exercises
 the public scrape API, actual fixture-site HTML routes, article fetching/parsing,
 the original PNG file, real MIME/byte decoding, mocked OCR, six-field lesson
 post-processing and saved-response retrieval. It requires neither a running
@@ -477,6 +534,58 @@ routes. Missing images return `422 no_lesson_image`. Unusable malformed JSON-LD
 with no valid page data or selected/fallback image returns
 `422 invalid_article_data`. Recoverable malformed optional metadata still permits
 a valid article image or OG fallback.
+
+### Mocked OCR versus real OCR
+
+| How you run it | What happens |
+| --- | --- |
+| Browse/curl the fixture HTML pages | The pure article parser displays metadata and selected-image information. OCR is not invoked. |
+| Run `tests/test_local_fixture_e2e.py` | Real fixture HTML/PNG routes and image validation run. A mocked OCR service receives the validated PNG bytes and returns the fixed original text/boxes in `tests/fixtures/lesson_ocr_original_six_sections.json`. Results use an in-memory persistence double. |
+| Submit an approved real article to the ordinary `/api/v1/scrape` endpoint | Real Korean/English Tesseract OCR runs on the downloaded image; configured language files and persistent PostgreSQL are required. |
+
+Mocked OCR has deterministic text, confidence and bounding boxes, even if the
+fixture image's visible words differ. It tests pipeline wiring, reading order and
+field assignment, not recognition accuracy. It never initializes Tesseract or
+downloads models. Real OCR can misread text, vary in confidence, and return partial
+or empty results; it must be checked separately with provisioned models. There is
+no runtime `MOCK_OCR` flag or curl-accessible mock-OCR endpoint.
+
+### Production safeguards and test commands
+
+Keep `ENABLE_TEST_SITE` **unset or false in production**, including Render.
+Registration happens at app creation; restart/redeploy after changing it. A
+production process should return 404 for `/_dev/test-site/` and its assets. Local
+URL fetching must remain forbidden regardless of that flag. The transport and
+extra fixture-image namespace exist only in pytest; do not copy them into the
+deployed app or broaden its host/IP allowlists to make fixture curl requests pass.
+
+Run the full suite with production defaults and without inheriting live database
+credentials:
+
+```sh
+env -u DATABASE_URL -u TEST_DATABASE_URL \
+  ENABLE_TEST_SITE=false SCRAPE_ENABLED=false SCRAPE_IN_PROCESS=false \
+  .venv/bin/python -m pytest -q
+```
+
+This does not start a listening website. Tests that verify development features
+temporarily opt in within isolated app instances; the production API remains
+covered with local URLs rejected. PostgreSQL integration tests skip without
+`TEST_DATABASE_URL`; enable those only against an isolated test database as
+described in [daily processing tests](#tests-for-daily-processing).
+
+To run only the non-website tests, exclude the two fixture-site test modules:
+
+```sh
+env -u DATABASE_URL -u TEST_DATABASE_URL \
+  ENABLE_TEST_SITE=false SCRAPE_ENABLED=false SCRAPE_IN_PROCESS=false \
+  .venv/bin/python -m pytest -q \
+    --ignore=tests/test_dev_site.py --ignore=tests/test_local_fixture_e2e.py
+```
+
+These test commands do not stop or reconfigure a server already running in
+another terminal. Stop that server with Ctrl+C before restarting it without
+`ENABLE_TEST_SITE=true` to check production route visibility.
 
 ## Response
 
@@ -954,7 +1063,9 @@ tests/
 
 ```sh
 .venv/bin/python -m pip install -r requirements-dev.txt
-.venv/bin/python -m pytest -q
+env -u DATABASE_URL -u TEST_DATABASE_URL \
+  ENABLE_TEST_SITE=false SCRAPE_ENABLED=false SCRAPE_IN_PROCESS=false \
+  .venv/bin/python -m pytest -q
 .venv/bin/python -m pip check
 git diff --check
 sh -n scripts/start.sh
