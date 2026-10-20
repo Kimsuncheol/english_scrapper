@@ -423,8 +423,9 @@ while retaining its language models. It creates no image or TSV files.
 
 ## OCR lifecycle, limits and results
 
-FastAPI lifespan initializes the process-wide service before serving requests.
-Direct service use initializes lazily under the same lock. Initialization failures
+FastAPI startup validates server limits but does not initialize OCR language
+models. The first scrape initializes the process-wide engine lazily under its
+lock; subsequent requests reuse it. Initialization failures
 are logged and cached, never retried or silently downgraded to English-only.
 Scraping returns `503 ocr_unavailable`; restart after fixing libraries/model paths.
 `/health` remains a liveness check, not a guarantee that OCR is available.
@@ -470,46 +471,195 @@ from a generated image on two successive calls through the same native engine.
 This confirms bilingual engine wiring, not accuracy on publisher graphics. Render
 peak RSS/latency and lesson accuracy still require deployment profiling.
 
-## Render Free: build and start
+## Render Free deployment
 
-Use a **Docker Web Service** with the repository's `Dockerfile`, select **Free**,
-and leave the Docker start command unset so the image's CMD runs. A Python-only
-`pip install` Render build is insufficient for the native libraries and models.
-No paid instance, persistent disk, or GPU is configured.
+Deploy this repository as a **Docker Web Service**, not Render's native Python
+runtime. The existing OCR binding needs system libraries and language files that
+`pip install` alone cannot supply. `render.yaml` describes this same Docker
+approach with `plan: free`, `/health`, and conservative environment settings. It
+creates one web service with no disk, database, background worker, or GPU.
 
-The multi-stage image uses `python:3.12-slim-bookworm`:
+### Python, dependencies and system packages
 
-1. Builder installs `g++`, `pkg-config`, `libtesseract-dev`, and
-   `libleptonica-dev`, then builds pinned Python wheels. `tesserocr` is compiled
-   against Debian libraries (`--no-binary=tesserocr`) to match the final image.
-2. Runtime installs `libtesseract5`, `liblept5`, `tesseract-ocr-eng`, and
-   `tesseract-ocr-kor` with `--no-install-recommends`. Debian packages supply fast
-   language data in `/usr/share/tesseract-ocr/5/tessdata`.
-3. Runtime installs the built wheels, copies only application code, and runs a
-   build-time assertion that both languages initialize. Build fails if missing.
-4. The unprivileged runtime starts exactly one worker:
+The builder and runtime both use **Python 3.12 on Debian Bookworm** via
+`python:3.12-slim-bookworm`. The minor-series image tag intentionally receives
+Python/security patch updates; it is not an immutable image digest. All Python
+runtime dependencies, including transitive dependencies, are pinned exactly in
+`requirements.txt` (notably `tesserocr==2.11.0` and `pillow==13.0.0`). Development
+dependencies remain separate. Debian packages track Bookworm security updates;
+the build is not bit-for-bit reproducible against a frozen apt snapshot.
+
+The multi-stage `Dockerfile`:
+
+1. Installs **builder-only** `g++`, `pkg-config`, `libtesseract-dev`, and
+   `libleptonica-dev`. It builds Python wheels, compiling `tesserocr` against the
+   Debian libraries with `--no-binary=tesserocr`.
+2. Installs **runtime** `libtesseract5`, `liblept5`, `tesseract-ocr-eng`, and
+   `tesseract-ocr-kor` using `--no-install-recommends`. The language packages
+   supply fast data under `/usr/share/tesseract-ocr/5/tessdata`.
+3. Installs the wheels and copies the application/start script. A build-time
+   assertion checks that both Korean and English models can initialize. A missing
+   binding, library, or model fails the image build rather than downloading data
+   on startup.
+4. Runs as an unprivileged user. The compiler/headers remain in the builder stage.
+
+No image or model is downloaded during service startup or from a health request.
+Application requests download only the submitted article and selected lesson
+image. OCR weights are immutable Docker image contents, not a writable cache.
+Request HTML, image buffers, and OCR results stay in memory and need no persistent
+filesystem. Redeploys/restarts can discard all writable files safely.
+
+### Start command and lightweight health
+
+Docker runs `sh /app/scripts/start.sh`, which executes:
 
 ```sh
-uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --workers 1
+python -m uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" --workers 1
 ```
 
-`PORT` defaults to 8000 in the Docker CMD for local use. Render supplies its port.
-Set health check path to `/health`; no `--reload` or multiworker deployment.
-The image sets `TESSDATA_PREFIX` and `OMP_THREAD_LIMIT=1`. Models and dependencies
-are installed during build; requests perform no model downloads. Immutable image
-files survive redeployment as part of the image, with no reliance on writable
-filesystem state.
+Render supplies `PORT`; do not hard-code it in the dashboard. The 8000 fallback
+is only for local runs. `exec` forwards shutdown signals to Python. There is no
+`--reload`, Gunicorn, model-fetch command, or runtime package installation.
+One worker and `SCRAPE_MAX_CONCURRENT_REQUESTS=1` are deliberate: memory use has
+not been measured on Render, so multiple worker copies are not justified.
 
-Local container commands:
+`GET /health` returns `200 {"status":"ok"}` without loading OCR language models,
+performing network calls, decoding images, or acquiring the OCR lock. It remains
+a **liveness** check even when OCR model files are absent. Importing the small
+native binding still happens on the main thread for signal-handler compatibility;
+model loading happens only when the first scrape reaches OCR. A first scrape can
+therefore take longer, or return `503 ocr_unavailable` for a broken installation,
+while health stays responsive.
+
+### Dashboard setup: Blueprint (recommended)
+
+1. Commit and push the deployment files to the repository branch you want Render
+   to deploy. The configured remote is
+   [Kimsuncheol/english_scrapper](https://github.com/Kimsuncheol/english_scrapper).
+2. Open the [Render dashboard](https://dashboard.render.com/), select **New →
+   Blueprint**, and connect your GitHub account/repository if prompted.
+3. Select `english_scrapper` and the branch containing these changes. Use the
+   root `render.yaml` as the Blueprint path.
+4. Review the proposed `english-scrapper` service: runtime **Docker**, plan
+   **Free**, Dockerfile `./Dockerfile`, context `.`, health path `/health`.
+   Do not change to a paid instance or add a disk to make the example work.
+5. Confirm the environment values below and deploy the Blueprint. There are no
+   required secrets or paid integrations.
+6. Follow the build/deploy logs. Once live, open the assigned `onrender.com` URL
+   with `/health`; it should return `{"status":"ok"}`. Open `/docs` and submit a
+   real approved Chosun article URL to verify the OCR pipeline separately.
+
+The Blueprint omits a Docker command override so Render uses the image CMD.
+[Render Blueprint reference](https://render.com/docs/blueprint-spec).
+
+### Dashboard setup: manual Web Service alternative
+
+Use this route **instead of** creating a Blueprint service to avoid duplicates.
+
+1. Select **New → Web Service → Git Provider** and connect the same repository.
+2. Set **Name** to `english-scrapper`; choose your deployment branch and an
+   available region. Leave **Root Directory** blank (repository root).
+3. Select **Docker** as the runtime/language. Use **Dockerfile Path**
+   `./Dockerfile` and build context `.` if these fields are shown.
+4. Select **Free** as the instance type. Leave **Docker Command** blank so the
+   image's CMD runs. Do not enter a Python build command or pre-deploy command.
+5. In **Environment**, review/add the table's six explicit values. They match
+   Docker/application defaults, so no secret values need to be invented.
+6. Set **Health Check Path** to `/health` under Advanced or the service's
+   Settings after creation. Do not attach a persistent disk.
+7. Select **Create Web Service**, watch build/deploy logs, then check `/health`
+   and a separate real scrape as described above.
+
+[Render Docker deployment](https://render.com/docs/docker),
+[first-deploy instructions](https://render.com/docs/your-first-deploy).
+
+### Required environment and safe defaults
+
+The Blueprint sets the following explicitly. The same defaults are already in
+the Docker image/application, so **no manually supplied secret or API key is
+required** for either setup path.
+
+| Variable | Value | Supplied by |
+| --- | --- | --- |
+| `PORT` | Render-selected port | Render automatically; leave unset |
+| `TESSDATA_PREFIX` | `/usr/share/tesseract-ocr/5/tessdata` | Docker image and Blueprint |
+| `OMP_THREAD_LIMIT` | `1` | Docker image and Blueprint |
+| `SCRAPE_MAX_CONCURRENT_REQUESTS` | `1` | Application default and Blueprint |
+| `SCRAPE_TIMEOUT_SECONDS` | `90` | Application default and Blueprint |
+| `OCR_MAX_PIXELS` | `4000000` | Application default and Blueprint |
+| `OCR_TIMEOUT_MS` | `30000` | Application default and Blueprint |
+
+Do not set `PYTHON_VERSION` expecting it to alter this deployment: the Docker base
+image controls Python. Do not add `WEB_CONCURRENCY` or change the start command to
+more than one worker without measured memory headroom. Optional article/image,
+OCR confidence, byte and timeout overrides are listed in **Server-controlled
+limits** above. Restart after changing settings; increasing limits does not add
+Free resources.
+
+### Sleep, cold starts and runtime limits
+
+Render Free currently sleeps after **15 minutes without inbound traffic**. The
+next request wakes it; Render documents spin-up as taking **about one minute**,
+which is separate from application processing time. A client's first scrape can
+therefore be slow even when the app is healthy. Clients should allow time for
+wake-up, inspect HTTP status/content type before parsing JSON, and retry failed
+wake-up attempts; a browser may initially see Render's loading page.
+[Free-service sleep behavior](https://render.com/docs/free).
+
+After wake-up, the first scrape also loads Korean/English models once into the
+new process. Fast model files total roughly **5.5 MB** (Korean 1.6 MB, English
+3.92 MB); this is disk size, **not** total inference RAM. Native library imports,
+model initialization, image decoding and recognition add latency. A local
+bilingual smoke test succeeded, but no trustworthy Render cold-start duration or
+peak RSS has been measured. Do not interpret local timings as a Render estimate.
+
+Free runtime resources are **512 MB RAM and 0.1 CPU**. Image/OCR intermediate
+buffers can greatly exceed model file size. Defaults cap downloads at 10 MiB,
+decoding at 16 million pixels, OCR at 4 million pixels, and admission at one
+request. These are safeguards, not a memory-fit guarantee. Large or complex
+lessons may be rejected or hit OCR/overall deadlines. Extra workers duplicate the
+model/runtime footprint. [Render compute plans](https://render.com/docs/compute-plans).
+
+Writable storage is ephemeral and Free services cannot attach persistent disks.
+This application needs neither persistent image files nor runtime model caches.
+Free runtime hours, bandwidth and pipeline usage also have workspace limits;
+check the dashboard rather than assuming unlimited service availability.
+[Free-service limitations](https://render.com/docs/free).
+
+### Build limits and troubleshooting
+
+The **build pipeline is separate from the Free web-service runtime**. Render
+currently documents Starter pipeline workers as 2 CPU / 8 GB RAM, with a 16 GB
+build disk limit and 120-minute build timeout. Hobby workspaces use this tier and
+currently include 500 Starter pipeline minutes per month. These are build
+resources, not RAM/CPU available to running OCR. Source-compiling `tesserocr`,
+apt/pip network access and an uncached image build can consume several minutes;
+there is no measured build-time promise here. Review billing/spend-limit settings
+and remaining pipeline minutes before repeated rebuilds. This repository does
+not request the paid Performance pipeline tier.
+[Render build pipeline](https://render.com/docs/build-pipeline).
+
+If building fails, inspect the package/compiler output: the multi-stage build
+must use the same Debian/Python base in both stages and install the listed dev
+headers before compiling. If the OCR initialization assertion fails, verify the
+runtime packages and `TESSDATA_PREFIX`; do not compensate with startup model
+downloads. At runtime, `ocr_unavailable` requires fixing/rebuilding the image or
+its model path; `scrape_busy`/`ocr_busy` can be retried after active work completes.
+Out-of-memory restarts or repeated deadlines require smaller inputs/lower limits
+or separately hosted OCR; adding workers makes the Free memory problem worse.
+
+### Local container verification
 
 ```sh
 docker build -t english-scrapper .
 docker run --rm -p 8000:8000 -e PORT=8000 english-scrapper
+curl --fail http://127.0.0.1:8000/health
 ```
 
-The host used for implementation has no Docker executable, so this container has
-not been built or measured here. The build-time initialization assertion provides
-an explicit check when building it. Render's 0.1 CPU allocation may make OCR slow
-or trigger deadlines even when memory fits. Free instances also sleep after idle
-periods, causing cold starts. Profile a representative lesson before increasing
-limits; otherwise reject oversized input or move heavy OCR to a separate service.
+Docker is unavailable on the implementation host, so the Linux container and
+actual Render deployment have not been built/run here. The start script was
+smoke-tested locally with a custom `PORT` and nonexistent OCR model directory:
+`/health` returned 200 without initializing OCR. The Blueprint YAML was parsed
+locally, but has not been submitted to Render's Blueprint validator. The image
+build includes its own native/model initialization assertion. Complete the
+container build and a real lesson scrape before treating the service as verified.

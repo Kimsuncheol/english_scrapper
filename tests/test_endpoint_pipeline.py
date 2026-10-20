@@ -235,14 +235,13 @@ def test_engine_exception_does_not_log_image_or_article_payload(pipeline, caplog
 
 @pytest.mark.parametrize("variable,value", [("ARTICLE_MAX_BYTES", "0"), ("ARTICLE_MAX_BYTES", "9999999"), ("IMAGE_MAX_PIXELS", "0"), ("SCRAPE_TIMEOUT_SECONDS", "nan"), ("SCRAPE_MAX_CONCURRENT_REQUESTS", "0")])
 def test_invalid_server_limits_fail_startup(monkeypatch, variable, value):
-    import app.main as main
     monkeypatch.setenv(variable, value)
-    initialize = AsyncMock(return_value=True)
-    monkeypatch.setattr(main, "initialize_ocr", initialize)
+    initialize = Mock(return_value=True)
+    monkeypatch.setattr(ocr.ocr_service, "initialize", initialize)
     with pytest.raises(ValueError):
         with TestClient(app):
             pass
-    initialize.assert_not_awaited()
+    initialize.assert_not_called()
 
 
 def test_default_admission_rejects_second_request_before_http(pipeline, monkeypatch):

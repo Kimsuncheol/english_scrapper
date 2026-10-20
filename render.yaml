@@ -1,0 +1,23 @@
+# Docker installs native OCR libraries and models during the image build.
+# The Docker CMD runs scripts/start.sh; no separate build/start override needed.
+services:
+  - type: web
+    name: english-scrapper
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: TESSDATA_PREFIX
+        value: /usr/share/tesseract-ocr/5/tessdata
+      - key: OMP_THREAD_LIMIT
+        value: "1"
+      - key: SCRAPE_MAX_CONCURRENT_REQUESTS
+        value: "1"
+      - key: SCRAPE_TIMEOUT_SECONDS
+        value: "90"
+      - key: OCR_MAX_PIXELS
+        value: "4000000"
+      - key: OCR_TIMEOUT_MS
+        value: "30000"

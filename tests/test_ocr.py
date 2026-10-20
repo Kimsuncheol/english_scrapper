@@ -4,6 +4,7 @@ from threading import Event, Thread
 from unittest.mock import AsyncMock, Mock
 
 from fastapi.testclient import TestClient
+import httpx
 from PIL import Image
 import pytest
 
@@ -244,10 +245,44 @@ def test_api_maps_ocr_initialization_failure(monkeypatch, mock_image_download):
     assert response.json()["error"]["code"] == "ocr_unavailable"
 
 
-def test_lifespan_initializes_ocr_without_breaking_health(monkeypatch):
-    import app.main as main
-    initialize = AsyncMock(return_value=False)
-    monkeypatch.setattr(main, "initialize_ocr", initialize)
+def test_lifespan_and_health_never_initialize_ocr(monkeypatch):
+    factory = Mock(side_effect=RuntimeError("OCR is unavailable"))
+    service = OCRService(factory)
+    monkeypatch.setattr(ocr, "ocr_service", service)
     with TestClient(app) as client:
         assert client.get("/health").json() == {"status": "ok"}
-    initialize.assert_awaited_once()
+        assert client.get("/health").json() == {"status": "ok"}
+    factory.assert_not_called()
+
+
+def test_health_responds_while_ocr_initialization_is_blocked(monkeypatch):
+    entered, release = Event(), Event()
+    engine = Mock()
+    engine.recognize.return_value = OCRText(raw_text="Hello")
+
+    def factory():
+        entered.set()
+        assert release.wait(5)
+        return engine
+
+    service = OCRService(factory)
+    monkeypatch.setattr(ocr, "ocr_service", service)
+
+    async def run():
+        pending = asyncio.create_task(ocr.recognize_image(b"mock image bytes"))
+        try:
+            assert await asyncio.to_thread(entered.wait, 2)
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                response = await asyncio.wait_for(client.get("/health"), timeout=1)
+            assert response.status_code == 200
+            assert response.json() == {"status": "ok"}
+            assert not pending.done()
+        finally:
+            release.set()
+            await pending
+
+    try:
+        asyncio.run(run())
+    finally:
+        release.set()
+        service.close()

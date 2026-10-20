@@ -19,8 +19,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \
     && rm -rf /wheels
 COPY app ./app
+COPY scripts/start.sh ./scripts/start.sh
 # Fail the build if either language or the native binding is unusable.
 RUN python -c 'from app.services.ocr import OCRService; s = OCRService(); assert s.initialize(), "OCR initialization failed"; s.close()'
 RUN useradd --create-home appuser
 USER appuser
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]
+CMD ["sh", "/app/scripts/start.sh"]
