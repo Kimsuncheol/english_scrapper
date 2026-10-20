@@ -98,12 +98,22 @@ class LessonParsingResult(BaseModel):
     method: str = "labeled_layout_v1"
 
 
+class ProcessingStatus(BaseModel):
+    status: Literal["completed", "partial"]
+    completed_stages: list[Literal["url_validation", "article_fetch", "article_parse", "image_download", "ocr", "lesson_parse"]]
+    ocr_status: Literal["ok", "low_confidence", "empty"]
+    lesson_status: Literal["structured", "partial", "unparsed", "empty"]
+    elapsed_ms: float = Field(ge=0)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ScrapeResponse(BaseModel):
     article: ArticleMetadata
     lesson_image: LessonImageMetadata
     article_images: list[LessonImageMetadata] = Field(default_factory=list)
-    ocr: OCRText | None = None
-    lesson: LessonParsingResult | None = None
+    ocr: OCRText
+    lesson: LessonParsingResult
+    processing: ProcessingStatus
 
 
 class ValidationIssue(BaseModel):

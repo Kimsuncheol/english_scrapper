@@ -22,7 +22,7 @@ async def health() -> HealthResponse:
         502: {"model": ErrorResponse, "description": "Publisher fetch failed"},
         504: {"model": ErrorResponse, "description": "Fetch or OCR processing deadline exceeded"},
         500: {"model": ErrorResponse, "description": "OCR recognition failed"},
-        503: {"model": ErrorResponse, "description": "OCR unavailable or busy"},
+        503: {"model": ErrorResponse, "description": "Service or OCR busy, or OCR unavailable"},
     },
 )
 async def scrape(request: ScrapeRequest) -> ScrapeResponse:

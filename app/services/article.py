@@ -4,6 +4,8 @@ import asyncio
 from dataclasses import dataclass
 from ipaddress import ip_address
 import socket
+import os
+import math
 from urllib.parse import urljoin
 
 import httpx
@@ -15,8 +17,34 @@ from app.services.parsing import article_nodes, metadata_from_page, read_page
 MAX_HTML_BYTES = 2 * 1024 * 1024
 MAX_REDIRECTS = 3
 TOTAL_TIMEOUT = 30
-HTTP_TIMEOUT = httpx.Timeout(connect=5, read=10, write=5, pool=5)
 USER_AGENT = "ChosunEnglishLessonAPI/0.1 (article text learning service)"
+
+
+@dataclass(frozen=True)
+class ArticleFetchConfig:
+    max_bytes: int = MAX_HTML_BYTES
+    connect_timeout: float = 5
+    read_timeout: float = 10
+    total_timeout: float = TOTAL_TIMEOUT
+    max_redirects: int = MAX_REDIRECTS
+
+    def __post_init__(self):
+        if isinstance(self.max_bytes, bool) or not isinstance(self.max_bytes, int) or not 0 < self.max_bytes <= MAX_HTML_BYTES:
+            raise ValueError("Article byte limit must be a positive integer no larger than the 2 MiB parser cap")
+        if isinstance(self.max_redirects, bool) or not isinstance(self.max_redirects, int) or self.max_redirects < 0:
+            raise ValueError("Article redirect limit must be a nonnegative integer")
+        if any(isinstance(v, bool) or not math.isfinite(v) or v <= 0 for v in (self.connect_timeout, self.read_timeout, self.total_timeout)):
+            raise ValueError("Article timeouts must be positive finite numbers")
+
+    @classmethod
+    def from_env(cls):
+        return cls(
+            max_bytes=int(os.getenv("ARTICLE_MAX_BYTES", str(MAX_HTML_BYTES))),
+            connect_timeout=float(os.getenv("ARTICLE_CONNECT_TIMEOUT_SECONDS", "5")),
+            read_timeout=float(os.getenv("ARTICLE_READ_TIMEOUT_SECONDS", "10")),
+            total_timeout=float(os.getenv("ARTICLE_TOTAL_TIMEOUT_SECONDS", str(TOTAL_TIMEOUT))),
+            max_redirects=int(os.getenv("ARTICLE_MAX_REDIRECTS", str(MAX_REDIRECTS))),
+        )
 
 
 @dataclass(frozen=True)
@@ -61,15 +89,16 @@ def validate_article_html(url: str, html: str) -> FetchedArticle:
     return FetchedArticle(url=url, html=html, title=title)
 
 
-async def _fetch_article(article_url: str, transport: httpx.AsyncBaseTransport | None) -> FetchedArticle:
+async def _fetch_article(article_url: str, transport: httpx.AsyncBaseTransport | None, config: ArticleFetchConfig) -> FetchedArticle:
     current = article_url
     # No environment proxies, cookies from other requests, automatic redirects,
     # or connection reuse across hosts sharing a CDN IP.
     async with httpx.AsyncClient(
-        timeout=HTTP_TIMEOUT, follow_redirects=False, trust_env=False,
+        timeout=httpx.Timeout(connect=config.connect_timeout, read=config.read_timeout, write=5, pool=5),
+        follow_redirects=False, trust_env=False,
         transport=transport, limits=httpx.Limits(max_connections=1, max_keepalive_connections=0),
     ) as client:
-        for hop in range(MAX_REDIRECTS + 1):
+        for hop in range(config.max_redirects + 1):
             try:
                 logical_url = validate_article_url(current)
             except ValueError as exc:
@@ -84,7 +113,7 @@ async def _fetch_article(article_url: str, transport: httpx.AsyncBaseTransport |
             ) as response:
                 if response.status_code in {301, 302, 303, 307, 308}:
                     location = response.headers.get("location")
-                    if not location or hop == MAX_REDIRECTS:
+                    if not location or hop == config.max_redirects:
                         raise ArticleFetchError("redirect_error", "Article redirect is missing a destination or exceeds the redirect limit.")
                     current = urljoin(str(logical_url), location)
                     continue
@@ -104,12 +133,12 @@ async def _fetch_article(article_url: str, transport: httpx.AsyncBaseTransport |
                             raise ValueError
                     except ValueError as exc:
                         raise ArticleFetchError("upstream_http_error", "The publisher returned an invalid Content-Length.") from exc
-                    if size > MAX_HTML_BYTES:
-                        raise ArticleFetchError("html_too_large", "Article HTML exceeds the 2 MiB limit.")
+                    if size > config.max_bytes:
+                        raise ArticleFetchError("html_too_large", "Article HTML exceeds the configured byte limit.")
                 body = bytearray()
                 async for chunk in response.aiter_raw():
-                    if len(body) + len(chunk) > MAX_HTML_BYTES:
-                        raise ArticleFetchError("html_too_large", "Article HTML exceeds the 2 MiB limit.")
+                    if len(body) + len(chunk) > config.max_bytes:
+                        raise ArticleFetchError("html_too_large", "Article HTML exceeds the configured byte limit.")
                     body.extend(chunk)
                 try:
                     html = body.decode(response.encoding or "utf-8", errors="replace")
@@ -118,11 +147,12 @@ async def _fetch_article(article_url: str, transport: httpx.AsyncBaseTransport |
                 return validate_article_html(str(logical_url), html)
 
 
-async def fetch_article(article_url: str, *, transport: httpx.AsyncBaseTransport | None = None) -> FetchedArticle:
+async def fetch_article(article_url: str, *, transport: httpx.AsyncBaseTransport | None = None, config: ArticleFetchConfig | None = None) -> FetchedArticle:
     """Fetch a validated article; transport injection is only for offline tests."""
+    config = config or ArticleFetchConfig.from_env()
     try:
-        async with asyncio.timeout(TOTAL_TIMEOUT):
-            return await _fetch_article(article_url, transport)
+        async with asyncio.timeout(config.total_timeout):
+            return await _fetch_article(article_url, transport, config)
     except (TimeoutError, httpx.TimeoutException) as exc:
         raise ArticleFetchError("article_timeout", "Timed out fetching the article.", 504) from exc
     except (httpx.RequestError, OSError) as exc:

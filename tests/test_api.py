@@ -70,6 +70,9 @@ def test_route_delegates_to_service_and_serializes_contract(monkeypatch):
         article={"url": "https://www.chosun.com/example/", "title": "Example"},
         lesson_image={"url": "https://example.com/lesson.png", "width": 800},
         ocr={"raw_text": "안녕하세요 Hello", "korean_text": "안녕하세요", "english_text": "Hello"},
+        lesson={"status": "unparsed", "reasons": ["No section labels"]},
+        processing={"status": "partial", "completed_stages": ["url_validation", "article_fetch", "article_parse", "image_download", "ocr", "lesson_parse"],
+            "ocr_status": "ok", "lesson_status": "unparsed", "elapsed_ms": 1},
     )
     service = AsyncMock(return_value=result)
     monkeypatch.setattr(scrape_service, "scrape_article", service)

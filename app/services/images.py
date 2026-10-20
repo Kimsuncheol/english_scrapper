@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from io import BytesIO
 import math
+import os
 from urllib.parse import urljoin, urlsplit
 import warnings
 
@@ -49,6 +50,18 @@ class ImageDownloadConfig:
                 raise ValueError("Image timeouts must be positive finite numbers")
         if isinstance(self.max_redirects, bool) or not isinstance(self.max_redirects, int) or self.max_redirects < 0:
             raise ValueError("max_redirects must be a nonnegative integer")
+
+    @classmethod
+    def from_env(cls):
+        return cls(
+            max_bytes=int(os.getenv("IMAGE_MAX_BYTES", str(10 * 1024 * 1024))),
+            max_pixels=int(os.getenv("IMAGE_MAX_PIXELS", "16000000")),
+            max_dimension=int(os.getenv("IMAGE_MAX_DIMENSION", "20000")),
+            connect_timeout=float(os.getenv("IMAGE_CONNECT_TIMEOUT_SECONDS", "5")),
+            read_timeout=float(os.getenv("IMAGE_READ_TIMEOUT_SECONDS", "10")),
+            total_timeout=float(os.getenv("IMAGE_TOTAL_TIMEOUT_SECONDS", "30")),
+            max_redirects=int(os.getenv("IMAGE_MAX_REDIRECTS", "3")),
+        )
 
 
 @dataclass(frozen=True)
@@ -162,7 +175,7 @@ async def download_lesson_image(
     Accepts image metadata discovered in an article, not arbitrary request URLs.
     Redirects may use another explicitly approved publisher image host.
     """
-    config = config or ImageDownloadConfig()
+    config = config or ImageDownloadConfig.from_env()
     url = validate_image_url(image.url)
     try:
         async with asyncio.timeout(config.total_timeout):

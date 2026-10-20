@@ -55,6 +55,8 @@ A successful scrape returns HTTP 200:
   `source`, `is_fallback`, and `content_element_path`. After downloading,
   `content_type`, `byte_size`, `format`, `download_url`, and measured dimensions
   describe the verified image. `url` retains the original selected URL.
+- `processing`: overall `completed` or `partial` status, completed stage names,
+  OCR/lesson status, elapsed milliseconds, and concise warnings.
 - `article_images`: all valid image URL candidates in body content order,
   including those below selection size thresholds. Paths such as `[2]` or
   `[0, 1]` identify indices in body or nested gallery `content_elements`.
@@ -77,6 +79,86 @@ assignments. JavaScript is never executed; object literals containing JavaScript
 expressions, functions, or `undefined` are not interpreted. Malformed optional
 JSON-LD/Fusion data is ignored so other available metadata or OG fallback can
 still be used.
+
+## End-to-end endpoint behavior
+
+The route delegates to `services/scrape.py`, which validates the URL, fetches
+HTML, parses metadata/image candidates, downloads and validates the selected
+image, runs the process-wide OCR service, and classifies lesson fields. Article
+and lesson parsing run in worker threads; network calls are asynchronous.
+Successful responses require typed `ocr`, `lesson`, and `processing` objects.
+
+`processing.completed_stages` lists `url_validation`, `article_fetch`,
+`article_parse`, `image_download`, `ocr`, and `lesson_parse`. A completed stage
+means the step ran successfully, not that OCR found text or every field exists.
+Overall `processing.status` is `partial` when OCR/lesson classification is
+uncertain, warnings remain, or the selected image is an OG fallback. Raw OCR and
+available metadata remain in HTTP 200 responses for these reviewable outcomes.
+
+Failures stop downstream stages and return the existing concise `error` envelope:
+
+| HTTP status | Meaning |
+| --- | --- |
+| 422 | Invalid URL, invalid article/image, no lesson image, or oversized decoded/OCR dimensions |
+| 403 | Publisher access denied, rate-limited, or a recognized challenge page |
+| 502 | Upstream HTTP/network failure, unsupported transfer encoding, redirect failure, or downloaded bytes exceeding the configured limit |
+| 504 | Article/image timeout, native OCR failure/deadline, or overall `scrape_timeout` |
+| 503 | `scrape_busy`, `ocr_busy`, or `ocr_unavailable`; retry after in-flight work finishes, or fix the OCR installation |
+| 500 | Unexpected processing failure (`processing_failed`) or native OCR error (`ocr_failed`) |
+
+The default one-request admission gate bounds active pipeline memory on Render
+Free and rejects excess work before any outbound HTTP call. The OCR service
+retains its independent lock even when request concurrency is increased. Locks
+are released on normal completion and errors. Cancellation does not release the
+native OCR lock until its worker actually finishes, preventing shared state
+corruption when a timed-out HTTP request leaves native work briefly in flight.
+
+Application logs contain fixed stage names and exception class names, never full
+HTML, image buffers, OCR content, or arbitrary dependency exception messages.
+No image bytes or local paths are serialized into the API response.
+
+### Server-controlled limits
+
+Set environment variables before starting the server; none are accepted from
+request bodies. Article, image and pipeline settings are checked during startup.
+Invalid values fail startup rather than silently disabling a limit. OCR config is
+initialized once per process; restart after changing settings. Python callers can
+also pass `ArticleFetchConfig` / `ImageDownloadConfig` directly to those services.
+
+| Environment variable | Default |
+| --- | --- |
+| `SCRAPE_TIMEOUT_SECONDS` | 90 |
+| `SCRAPE_MAX_CONCURRENT_REQUESTS` | 1 |
+| `ARTICLE_MAX_BYTES` | 2097152 (2 MiB; may be lowered, cannot exceed the parser's hard cap) |
+| `ARTICLE_CONNECT_TIMEOUT_SECONDS` | 5 |
+| `ARTICLE_READ_TIMEOUT_SECONDS` | 10 |
+| `ARTICLE_TOTAL_TIMEOUT_SECONDS` | 30 |
+| `ARTICLE_MAX_REDIRECTS` | 3 |
+| `IMAGE_MAX_BYTES` | 10485760 (10 MiB) |
+| `IMAGE_MAX_PIXELS` | 16000000 |
+| `IMAGE_MAX_DIMENSION` | 20000 |
+| `IMAGE_CONNECT_TIMEOUT_SECONDS` | 5 |
+| `IMAGE_READ_TIMEOUT_SECONDS` | 10 |
+| `IMAGE_TOTAL_TIMEOUT_SECONDS` | 30 |
+| `IMAGE_MAX_REDIRECTS` | 3 |
+| `OCR_MAX_BYTES` | 10485760 (10 MiB) |
+| `OCR_MAX_PIXELS` | 4000000 |
+| `OCR_TIMEOUT_MS` | 30000 |
+| `OCR_MIN_CONFIDENCE` | 0.5 |
+
+The overall deadline is cooperative: a native OCR call or CPU worker cannot be
+hard-killed safely from its Python request. Such work retains its lock until it
+returns; native recognition also has its own deadline. Keep the default request
+concurrency and one Uvicorn worker on Free. Increasing limits does not increase
+Render resources and can cause memory exhaustion or CPU deadline failures.
+Byte, pixel, parser, and OCR limits all apply; raising the downloader limit alone
+does not raise the parser/OCR cap.
+
+`tests/test_endpoint_pipeline.py` exercises the entire route using mocked DNS,
+HTTP transports and OCR outputs, while retaining real URL/HTML/image validation,
+metadata parsing, and lesson classification. It covers complete and partial
+responses, stage failures, environment limits, safe logging, admission cleanup,
+and two simultaneous requests against one shared mock OCR engine.
 
 ## Structured lesson fields
 
@@ -275,7 +357,8 @@ or bypassing publisher access controls.
 
 For example, pass `config=ImageDownloadConfig(max_bytes=5 * 1024 * 1024)`
 to `download_lesson_image`. Limits are server-controlled, never accepted from
-request bodies. The API currently uses the defaults.
+request bodies. The API uses these defaults unless overridden by the environment
+settings below.
 
 Only JPEG, PNG, WebP, and nonanimated GIF responses are supported. Content-Type
 must agree with the detected format. Pillow verifies the file, then reopens and
@@ -349,8 +432,10 @@ The binding is imported on the main ASGI thread because its `cysignals` dependen
 registers signal handlers; model initialization and OCR run in worker threads.
 Native resources are released at process exit.
 
-OCR runs in a worker thread, with one engine call at a time; competing calls
-receive `503 ocr_busy` rather than an unbounded OCR queue. `OMP_THREAD_LIMIT=1`
+OCR runs in a worker thread, with one engine call at a time. The default
+whole-request admission limit rejects a competing scrape with `503 scrape_busy`
+before fetching. If request concurrency is explicitly raised, competing OCR
+calls still receive `503 ocr_busy` rather than sharing the engine concurrently. `OMP_THREAD_LIMIT=1`
 limits native OpenMP threads in the supplied image. State is cleared between
 images to avoid carrying recognition adaptation across requests.
 
@@ -361,7 +446,7 @@ images to avoid carrying recognition adaptation across requests.
 | `OCR_MIN_CONFIDENCE` | 0.5 | Flag uncertain regions and low average confidence |
 | `OCR_TIMEOUT_MS` | 30,000 | Native cooperative recognition deadline |
 
-The OCR byte cap is 10 MiB via `OCRConfig.max_bytes`. The OCR pixel limit is
+The OCR byte cap defaults to 10 MiB via `OCR_MAX_BYTES` / `OCRConfig.max_bytes`. The OCR pixel limit is
 intentionally lower than the downloader's 16-million-pixel decode limit: native
 OCR needs additional image and segmentation buffers. Large lessons may be
 rejected; increasing this limit without profiling can exhaust Free memory. The

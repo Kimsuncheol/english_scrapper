@@ -57,6 +57,7 @@ class OCRConfig:
             tessdata_dir=os.getenv("TESSDATA_PREFIX"),
             min_confidence=float(os.getenv("OCR_MIN_CONFIDENCE", "0.5")),
             max_pixels=int(os.getenv("OCR_MAX_PIXELS", "4000000")),
+            max_bytes=int(os.getenv("OCR_MAX_BYTES", str(10 * 1024 * 1024))),
             timeout_ms=int(os.getenv("OCR_TIMEOUT_MS", "30000")),
         )
 
@@ -180,8 +181,8 @@ class OCRService:
             self._initialized = True
             try:
                 self._engine = self.factory()
-            except Exception:
-                logger.exception("OCR initialization failed; check native libraries and kor/eng models")
+            except Exception as exc:
+                logger.error("OCR initialization failed (%s); check native libraries and kor/eng models", type(exc).__name__)
 
     def initialize(self) -> bool:
         with self._lock:
@@ -200,7 +201,7 @@ class OCRService:
             except OCRError:
                 raise
             except Exception as exc:
-                logger.exception("OCR recognition failed")
+                logger.error("OCR recognition failed (%s)", type(exc).__name__)
                 raise OCRError("ocr_failed", "OCR could not process the lesson image.", 500) from exc
         finally:
             self._lock.release()

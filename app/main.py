@@ -10,12 +10,19 @@ from app.api import router
 from app.schemas import ErrorDetail, ErrorResponse, ValidationIssue
 from app.services.errors import ArticleFetchError
 from app.services.ocr import initialize_ocr
+from app.services.article import ArticleFetchConfig
+from app.services.images import ImageDownloadConfig
+from app.services.scrape import ScrapeConfig
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Failure leaves health/liveness usable; scrape returns a structured 503.
     # Native resources live for the process and are released through atexit.
+    # Misconfigured server limits should fail startup rather than disable limits.
+    ArticleFetchConfig.from_env()
+    ImageDownloadConfig.from_env()
+    ScrapeConfig.from_env()
     await initialize_ocr()
     yield
 
