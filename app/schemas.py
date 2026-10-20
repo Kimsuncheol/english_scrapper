@@ -73,11 +73,37 @@ class OCRText(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class LessonField(BaseModel):
+    text: str
+    region_indices: list[int]
+    confidence: float = Field(ge=0, le=1)
+    bounding_box: BoundingBox
+
+
+class LessonFields(BaseModel):
+    expression: LessonField | None = None
+    korean_meaning: LessonField | None = None
+    korean_explanation: LessonField | None = None
+    english_dialogue: LessonField | None = None
+    korean_dialogue_translation: LessonField | None = None
+    vocabulary_notes: LessonField | None = None
+    source_credit: LessonField | None = None
+
+
+class LessonParsingResult(BaseModel):
+    status: Literal["structured", "partial", "unparsed", "empty"]
+    fields: LessonFields = Field(default_factory=LessonFields)
+    reasons: list[str] = Field(default_factory=list)
+    unassigned_region_indices: list[int] = Field(default_factory=list)
+    method: str = "labeled_layout_v1"
+
+
 class ScrapeResponse(BaseModel):
     article: ArticleMetadata
     lesson_image: LessonImageMetadata
     article_images: list[LessonImageMetadata] = Field(default_factory=list)
     ocr: OCRText | None = None
+    lesson: LessonParsingResult | None = None
 
 
 class ValidationIssue(BaseModel):

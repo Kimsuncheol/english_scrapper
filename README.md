@@ -3,7 +3,8 @@
 FastAPI service that safely fetches Chosun.com articles and extracts article
 metadata and lesson-image URLs, then downloads and validates the selected image
 in memory. Tesseract recognizes Korean and English text and returns word regions
-with confidence and pixel bounding boxes. No request files are written at runtime.
+with confidence and pixel bounding boxes. A conservative layout parser organizes
+supported labeled sections into lesson fields. No request files are written at runtime.
 
 ## Run locally
 
@@ -62,7 +63,7 @@ A successful scrape returns HTTP 200:
   and `bounding_box: {x, y, width, height}` in original-image pixels from the top
   left. Regions retain Tesseract reading order; words on the same line are joined.
   `korean_text`/`english_text` remain `null`: recognition uses both languages
-  together, and reliable language/translation separation is not implemented.
+  together. Structured lesson sections are provided separately in `lesson`.
 
 Metadata comes from Article/NewsArticle JSON-LD (including arrays and `@graph`)
 with Fusion page-data fallbacks. Valid HTML canonical links take priority for
@@ -76,6 +77,77 @@ assignments. JavaScript is never executed; object literals containing JavaScript
 expressions, functions, or `undefined` are not interpreted. Malformed optional
 JSON-LD/Fusion data is ignored so other available metadata or OG fallback can
 still be used.
+
+## Structured lesson fields
+
+`POST /api/v1/scrape` adds a `lesson` object alongside the **unchanged** `ocr`
+object. `ocr.raw_text`, `ocr.regions`, confidence scores, and original region order
+remain available for correction/debugging even if parsing fails.
+
+All seven entries in `lesson.fields` are optional and default to `null`:
+`expression`, `korean_meaning`, `korean_explanation`, `english_dialogue`,
+`korean_dialogue_translation`, `vocabulary_notes`, and `source_credit`.
+A populated field contains:
+
+```json
+{
+  "text": "Don't sweat it.",
+  "region_indices": [1, 2, 3],
+  "confidence": 0.97,
+  "bounding_box": {"x": 40, "y": 65, "width": 142, "height": 28}
+}
+```
+
+This is an illustrative field, not a screenshot extraction. Region indices refer
+to the original `ocr.regions` array. Field confidence is the minimum supporting
+region/heading confidence, not a calibrated classification probability. Inline
+headings may share a region with field content; its original box/index is retained.
+
+The pure `parse_lesson(ocr, image_width, image_height, config)` service:
+
+1. Reconstructs lines using vertical overlap and limited horizontal word gaps.
+   Large horizontal gaps remain separate so parallel columns are not interleaved.
+2. Recognizes explicit English/Korean section labels such as `Expression`, `뜻`,
+   `설명`, `대화`, `대화 해석`, `Vocabulary`, and `Source:`. Labels must be whole
+   headings or colon-delimited prefixes, not incidental words in prose.
+3. Uses heading alignment to infer columns, then assigns only nearby content
+   below its heading and before the next label in that column. Large vertical
+   gaps and unsupported heading/credit markers stop assignment. Ambiguous column
+   ownership and repeated section labels cause conservative rejection.
+4. Checks confidence, language and dialogue speaker evidence. English dialogue
+   requires a speaker marker such as `A:`, `B:`, `A.`, or `B)`; following wrapped
+   lines stay in that section. Korean meaning/translation and English expression
+   cannot be inferred just from being adjacent. Mixed ambiguous sections are not
+   split or completed automatically.
+
+Straight/curly apostrophes, punctuation, Korean text, speaker labels, and line
+breaks are retained. The parser does not translate, invent missing fields, repair
+OCR spelling, or align English/Korean dialogue turns. Missing source credit is
+left `null`. Raw OCR always remains the authority for manual correction.
+
+| `lesson.status` | Meaning |
+| --- | --- |
+| `structured` | All observed supported sections were assigned reliably; this does **not** require every optional field to exist. |
+| `partial` | Some fields were assigned; other regions or sections remain ambiguous. |
+| `unparsed` | Reliable classification was unavailable; fields remain null and OCR remains available. |
+| `empty` | Neither raw text nor OCR regions are available. |
+
+`lesson.reasons` explains rejected/uncertain classification, and
+`lesson.unassigned_region_indices` locates unresolved raw regions. These statuses
+are successful HTTP 200 responses; they do not hide OCR or discard image metadata.
+
+`LessonParserConfig` controls aliases, minimum content confidence (0.6), heading
+confidence (0.75), line-overlap/gap thresholds, column separation, and a
+5,000-region processing cap. Layout processing runs off the async event loop,
+requires no model/service/storage, and adds no dependencies. Unknown unlabeled
+layouts intentionally return `unparsed`; geometric position alone cannot prove
+that a large English title is the target expression.
+
+No lesson screenshots were attached or available in the repository during this
+implementation. The three `lesson_ocr_*.json` fixtures are explicitly **synthetic**
+single-column, two-column, and ambiguous layouts. They verify mechanics, not
+accuracy on an actual publisher screenshot template. Add verified OCR exports
+from the intended screenshots and tune aliases/gaps before claiming that coverage.
 
 ## Image selection
 
@@ -117,6 +189,7 @@ app/
     parsing.py         # Pure metadata parsing and configurable image selection
     images.py          # In-memory download, format and pixel validation
     ocr.py             # Replaceable engine interface and process-wide OCR service
+    lesson.py          # Conservative layout-aware lesson post-processing
     urls.py            # HTTPS article-host policy
     errors.py          # Shared application errors
 tests/
@@ -126,6 +199,7 @@ tests/
   test_parsing.py
   test_images.py
   test_ocr.py
+  test_lesson.py
 ```
 
 ## Tests

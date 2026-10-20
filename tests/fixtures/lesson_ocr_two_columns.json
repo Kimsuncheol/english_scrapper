@@ -1,0 +1,173 @@
+{
+  "provenance": "Synthetic OCR fixture; no source screenshot was available in this workspace.",
+  "image": {
+    "width": 1000,
+    "height": 600
+  },
+  "ocr": {
+    "raw_text": "표현\nIt's up to you.\n뜻\n네가 결정해.\n설명\n결정을 상대방에게 맡기는 표현입니다.\n대화\nA: What should we do?\nShould we stay here?\nB: It’s up to you.\n대화 해석\nA: 무엇을 할까?\n여기에 있을까?\nB: 네가 결정해.\n어휘\nstay: 머무르다",
+    "status": "ok",
+    "regions": [
+      {
+        "text": "표현",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 40,
+          "y": 30,
+          "width": 18,
+          "height": 20
+        }
+      },
+      {
+        "text": "It's up to you.",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 40,
+          "y": 65,
+          "width": 135,
+          "height": 28
+        }
+      },
+      {
+        "text": "뜻",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 40,
+          "y": 145,
+          "width": 15,
+          "height": 20
+        }
+      },
+      {
+        "text": "네가 결정해.",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 40,
+          "y": 180,
+          "width": 63,
+          "height": 20
+        }
+      },
+      {
+        "text": "설명",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 40,
+          "y": 245,
+          "width": 18,
+          "height": 20
+        }
+      },
+      {
+        "text": "결정을 상대방에게 맡기는 표현입니다.",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 40,
+          "y": 280,
+          "width": 180,
+          "height": 20
+        }
+      },
+      {
+        "text": "대화",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 540,
+          "y": 30,
+          "width": 18,
+          "height": 20
+        }
+      },
+      {
+        "text": "A: What should we do?",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 540,
+          "y": 65,
+          "width": 189,
+          "height": 20
+        }
+      },
+      {
+        "text": "Should we stay here?",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 570,
+          "y": 95,
+          "width": 180,
+          "height": 20
+        }
+      },
+      {
+        "text": "B: It’s up to you.",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 540,
+          "y": 125,
+          "width": 162,
+          "height": 20
+        }
+      },
+      {
+        "text": "대화 해석",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 540,
+          "y": 210,
+          "width": 45,
+          "height": 20
+        }
+      },
+      {
+        "text": "A: 무엇을 할까?",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 540,
+          "y": 245,
+          "width": 90,
+          "height": 20
+        }
+      },
+      {
+        "text": "여기에 있을까?",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 570,
+          "y": 275,
+          "width": 72,
+          "height": 20
+        }
+      },
+      {
+        "text": "B: 네가 결정해.",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 540,
+          "y": 305,
+          "width": 90,
+          "height": 20
+        }
+      },
+      {
+        "text": "어휘",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 540,
+          "y": 390,
+          "width": 18,
+          "height": 20
+        }
+      },
+      {
+        "text": "stay: 머무르다",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 540,
+          "y": 425,
+          "width": 90,
+          "height": 20
+        }
+      }
+    ]
+  }
+}

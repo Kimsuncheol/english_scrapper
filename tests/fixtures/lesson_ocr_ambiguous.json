@@ -1,0 +1,93 @@
+{
+  "provenance": "Synthetic OCR fixture; no source screenshot was available in this workspace.",
+  "image": {
+    "width": 1000,
+    "height": 500
+  },
+  "ocr": {
+    "raw_text": "Don't sweat it.\n걱정하지 마.\nA: Are you sure?\nB: Yes, absolutely.\nA: 확실해?\nB: 응, 물론이지.",
+    "status": "ok",
+    "regions": [
+      {
+        "text": "Don't",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 40,
+          "y": 30,
+          "width": 45,
+          "height": 32
+        }
+      },
+      {
+        "text": "sweat",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 93,
+          "y": 30,
+          "width": 45,
+          "height": 32
+        }
+      },
+      {
+        "text": "it.",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 146,
+          "y": 30,
+          "width": 27,
+          "height": 32
+        }
+      },
+      {
+        "text": "걱정하지 마.",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 40,
+          "y": 95,
+          "width": 63,
+          "height": 20
+        }
+      },
+      {
+        "text": "A: Are you sure?",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 40,
+          "y": 180,
+          "width": 144,
+          "height": 20
+        }
+      },
+      {
+        "text": "B: Yes, absolutely.",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 40,
+          "y": 215,
+          "width": 171,
+          "height": 20
+        }
+      },
+      {
+        "text": "A: 확실해?",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 40,
+          "y": 290,
+          "width": 63,
+          "height": 20
+        }
+      },
+      {
+        "text": "B: 응, 물론이지.",
+        "confidence": 0.97,
+        "bounding_box": {
+          "x": 40,
+          "y": 325,
+          "width": 99,
+          "height": 20
+        }
+      }
+    ]
+  }
+}
