@@ -6,6 +6,11 @@ in memory. Tesseract recognizes Korean and English text and returns word regions
 with confidence and pixel bounding boxes. A conservative layout parser organizes
 supported labeled sections into lesson fields. No request files are written at runtime.
 
+The lesson graphic is a raster image: this service locates and downloads it,
+then recognizes its pixels with OCR. It does **not** extract the graphic as
+native/selectable text from the article HTML. Page metadata comes from HTML/page
+data, while lesson text is an OCR estimate that can contain errors.
+
 ## Run locally
 
 Use Python 3.12. Install the native runtime and Korean/English language data
@@ -36,14 +41,23 @@ The API runs at http://127.0.0.1:8000. Interactive documentation is at `/docs`
 and the OpenAPI schema at `/openapi.json`.
 
 ```sh
-curl http://127.0.0.1:8000/health
+# For Render, replace this URL with your assigned https://...onrender.com URL.
+BASE_URL=http://127.0.0.1:8000
+curl --fail --show-error "$BASE_URL/health"
 # {"status":"ok"}
 
-# Replace the placeholder with a real article URL.
-curl -i -X POST http://127.0.0.1:8000/api/v1/scrape \
-  -H 'Content-Type: application/json' \
-  -d '{"article_url":"https://www.chosun.com/example/"}'
+# Replace the placeholder path with a real approved Chosun lesson article.
+# -i includes HTTP status/headers so errors or a Render wake-up page are visible.
+curl --include --show-error --max-time 180 \
+  --request POST "$BASE_URL/api/v1/scrape" \
+  --header 'Content-Type: application/json' \
+  --data '{"article_url":"https://www.chosun.com/example/"}'
 ```
+
+The placeholder is not a real lesson URL and is not expected to succeed. The
+180-second client timeout leaves room for platform wake-up plus the app's default
+90-second pipeline budget; it does not change the server timeout. Inspect the
+status and Content-Type before decoding JSON after a Render cold start.
 
 ## Response
 
@@ -79,6 +93,170 @@ assignments. JavaScript is never executed; object literals containing JavaScript
 expressions, functions, or `undefined` are not interpreted. Malformed optional
 JSON-LD/Fusion data is ignored so other available metadata or OG fallback can
 still be used.
+
+### Example success response
+
+HTTP **200**. This is a **synthetic, schema-validated example**, not a live article
+extraction or a verified Render response. Only expression and Korean meaning are
+present, so the other optional lesson fields remain null. A `structured` lesson
+means the observed labeled sections were assigned, not that all seven exist.
+The example timing and byte count are illustrative, not benchmark results.
+
+```json
+{
+  "article": {
+    "url": "https://www.chosun.com/example/",
+    "title": "Illustrative English lesson",
+    "published_at": "2026-10-21T06:00:00+09:00",
+    "section": "Education",
+    "language": "ko"
+  },
+  "lesson_image": {
+    "url": "https://images.chosun.com/example-lesson.png",
+    "alt_text": null,
+    "content_type": "image/png",
+    "width": 1000,
+    "height": 1500,
+    "resized_urls": {
+
+    },
+    "source": "content_elements",
+    "is_fallback": false,
+    "content_element_path": [0],
+    "byte_size": 54321,
+    "format": "PNG",
+    "download_url": "https://images.chosun.com/example-lesson.png"
+  },
+  "article_images": [
+    {
+      "url": "https://images.chosun.com/example-lesson.png",
+      "alt_text": null,
+      "content_type": null,
+      "width": 1000,
+      "height": 1500,
+      "resized_urls": {
+
+      },
+      "source": "content_elements",
+      "is_fallback": false,
+      "content_element_path": [0],
+      "byte_size": null,
+      "format": null,
+      "download_url": null
+    }
+  ],
+  "ocr": {
+    "raw_text": "Expression\nDon't sweat it.\n뜻\n걱정하지 마.",
+    "korean_text": null,
+    "english_text": null,
+    "engine": "tesseract",
+    "status": "ok",
+    "mean_confidence": 0.97,
+    "regions": [
+      {"text": "Expression", "confidence": 0.97, "bounding_box": {"x": 40, "y": 30, "width": 120, "height": 24}, "low_confidence": false},
+      {"text": "Don't", "confidence": 0.97, "bounding_box": {"x": 40, "y": 70, "width": 60, "height": 24}, "low_confidence": false},
+      {"text": "sweat", "confidence": 0.97, "bounding_box": {"x": 110, "y": 70, "width": 60, "height": 24}, "low_confidence": false},
+      {"text": "it.", "confidence": 0.97, "bounding_box": {"x": 180, "y": 70, "width": 30, "height": 24}, "low_confidence": false},
+      {"text": "뜻", "confidence": 0.97, "bounding_box": {"x": 40, "y": 125, "width": 30, "height": 24}, "low_confidence": false},
+      {"text": "걱정하지", "confidence": 0.97, "bounding_box": {"x": 40, "y": 165, "width": 90, "height": 24}, "low_confidence": false},
+      {"text": "마.", "confidence": 0.97, "bounding_box": {"x": 140, "y": 165, "width": 30, "height": 24}, "low_confidence": false}
+    ],
+    "warnings": []
+  },
+  "lesson": {
+    "status": "structured",
+    "fields": {
+      "expression": {"text": "Don't sweat it.", "region_indices": [1, 2, 3], "confidence": 0.97, "bounding_box": {"x": 40, "y": 70, "width": 170, "height": 24}},
+      "korean_meaning": {"text": "걱정하지 마.", "region_indices": [5, 6], "confidence": 0.97, "bounding_box": {"x": 40, "y": 165, "width": 130, "height": 24}},
+      "korean_explanation": null,
+      "english_dialogue": null,
+      "korean_dialogue_translation": null,
+      "vocabulary_notes": null,
+      "source_credit": null
+    },
+    "reasons": [],
+    "unassigned_region_indices": [],
+    "method": "labeled_layout_v1"
+  },
+  "processing": {
+    "status": "completed",
+    "completed_stages": ["url_validation", "article_fetch", "article_parse", "image_download", "ocr", "lesson_parse"],
+    "ocr_status": "ok",
+    "lesson_status": "structured",
+    "elapsed_ms": 142.5,
+    "warnings": []
+  }
+}
+```
+
+### Common error responses
+
+All failures use `error.code`, a concise `error.message`, and a `details` list.
+Only request validation normally populates `details`; an upstream article 404
+becomes HTTP 502 because the API's upstream fetch failed.
+
+HTTP **422**, malformed or unsupported article URL:
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "Request validation failed. Check the indicated fields.",
+    "details": [
+      {
+        "location": [
+          "body",
+          "article_url"
+        ],
+        "message": "Value error, article_url must be an absolute HTTPS URL",
+        "type": "value_error"
+      }
+    ]
+  }
+}
+```
+
+HTTP **422**, no usable article image or OG fallback:
+
+```json
+{"error":{"code":"no_lesson_image","message":"No suitable article image or usable og:image fallback was found.","details":[]}}
+```
+
+HTTP **403**, publisher denied or rate-limited access (including upstream 429):
+
+```json
+{"error":{"code":"blocked_page","message":"The publisher denied or rate-limited article access.","details":[]}}
+```
+
+HTTP **502**, article host returned an error:
+
+```json
+{"error":{"code":"upstream_http_error","message":"The publisher returned HTTP 404.","details":[]}}
+```
+
+HTTP **503**, the default single-request slot is occupied:
+
+```json
+{"error":{"code":"scrape_busy","message":"The service is processing another article. Retry later.","details":[]}}
+```
+
+HTTP **503**, native libraries or Korean/English model files are unavailable:
+
+```json
+{"error":{"code":"ocr_unavailable","message":"OCR initialization failed. Check server libraries and Korean/English models.","details":[]}}
+```
+
+HTTP **504**, overall processing deadline:
+
+```json
+{"error":{"code":"scrape_timeout","message":"The scrape exceeded its processing deadline.","details":[]}}
+```
+
+Individual stages can instead return `article_timeout`, `image_timeout`, or
+`ocr_recognition_failed`. HTTP 200 with `processing.status: partial` is also a
+valid result: inspect `ocr.status`, `lesson.status`, and their warnings/reasons
+before trusting the structured fields. OCR mistakes are not necessarily HTTP
+errors.
 
 ## End-to-end endpoint behavior
 
@@ -116,6 +294,25 @@ corruption when a timed-out HTTP request leaves native work briefly in flight.
 Application logs contain fixed stage names and exception class names, never full
 HTML, image buffers, OCR content, or arbitrary dependency exception messages.
 No image bytes or local paths are serialized into the API response.
+
+### Request frequency and retries
+
+There is **no per-client/per-IP requests-per-minute rate limiter**. The default
+`SCRAPE_MAX_CONCURRENT_REQUESTS=1` is process-wide admission control: excess
+simultaneous requests get `503 scrape_busy`. The OCR engine also returns
+`503 ocr_busy` if its own lock is occupied. There is no request queue, automatic
+retry loop, or `Retry-After` header, and these controls do not establish any
+publisher-approved crawling frequency.
+
+Use the service for individual lessons: wait for one scrape to finish before
+starting another, leave a short pause between requests, and avoid parallel/bulk
+crawling. For busy responses or transient timeouts, use bounded increasing
+backoff with jitter rather than rapid retries. A client timeout can leave bounded
+native OCR work briefly in flight, so do not immediately issue a duplicate.
+Stop on publisher `blocked_page`/`image_blocked` responses instead of trying to
+bypass or repeatedly retry the access restriction. Fix invalid URLs/inputs before
+retrying 422 responses. Public multi-user use needs an appropriate gateway quota
+or application rate limiter in addition to the existing concurrency guard.
 
 ### Server-controlled limits
 
@@ -284,12 +481,22 @@ tests/
   test_lesson.py
 ```
 
-## Tests
+## Available checks
 
 ```sh
 .venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python -m pytest -q
+.venv/bin/python -m pip check
+git diff --check
+sh -n scripts/start.sh
 ```
+
+No formatter or linter is configured: there is no Ruff/Black/Flake8/isort config,
+pre-commit setup, or lint command. No formatting/lint success is claimed, and no
+new tool was installed merely for this pass. `git diff --check` checks whitespace,
+not Python formatting or lint rules. Render YAML syntax was also parsed locally
+with Ruby's YAML parser; this is not validation by Render.
+
 
 Tests use local fixtures and mocked DNS/HTTP transport. No tests access the live
 publisher. Fixture provenance and covered page shapes are documented in
@@ -663,3 +870,33 @@ smoke-tested locally with a custom `PORT` and nonexistent OCR model directory:
 locally, but has not been submitted to Render's Blueprint validator. The image
 build includes its own native/model initialization assertion. Complete the
 container build and a real lesson scrape before treating the service as verified.
+
+## Render readiness and remaining limitations
+
+Prepared locally:
+
+- Docker build with pinned Python runtime packages, native OCR system libraries,
+  and build-time Korean/English models; no runtime model downloads or persistent
+  request files.
+- Explicit Free Blueprint, `$PORT` binding on `0.0.0.0`, one worker, one default
+  active scrape, bounded network/image/OCR resources, and lightweight `/health`.
+- Complete typed API pipeline with raw OCR, optional lesson fields, processing
+  status, concise errors, and tests using mocked HTTP/OCR.
+- Exact Blueprint/manual dashboard steps and environment values above.
+
+Still unverified or limited:
+
+- **No actual Render deployment was performed or verified.** Docker is unavailable
+  on this host, so the Linux container build also remains unverified. Local shell,
+  test and health checks do not establish that a remote deployment succeeded.
+- Real publisher article fetching/image-host coverage, real screenshot layout
+  accuracy, Render build time, peak memory, and inference/cold-start latency need
+  end-to-end checks. Parser fixtures are synthetic; the local bilingual OCR smoke
+  image is not an accuracy benchmark for lesson screenshots.
+- Free sleep/wake-up delays, limited CPU/RAM, cooperative timeouts and input caps
+  can produce slow/rejected requests. `/health` reports liveness, not OCR readiness.
+- Tall-image selection and labeled-layout classification are heuristics. OG images
+  may be thumbnails; uncertain/unknown layouts return partial or unparsed results.
+  No missing text, translation, or dialogue alignment is invented.
+- The API has concurrency protection but no per-client request quota. OCR/model
+  state is process-local and not shared between multiple workers or instances.
