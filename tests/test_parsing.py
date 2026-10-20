@@ -173,7 +173,7 @@ def test_jsonld_article_matches_canonical_instead_of_related_story():
     assert parse_article_html(html, URL).article.title == "오늘의 영어: Hello {world}"
 
 
-def test_parse_api_returns_metadata_and_ocr(monkeypatch, mock_image_download, mock_ocr):
+def test_parse_api_returns_metadata_and_ocr(monkeypatch, mock_image_download, mock_ocr, persisted_store):
     monkeypatch.setattr(scrape, "fetch_article", AsyncMock(return_value=FetchedArticle(
         url=URL, html=sample("fusion_lesson.html"), title="Lesson"
     )))
@@ -184,7 +184,7 @@ def test_parse_api_returns_metadata_and_ocr(monkeypatch, mock_image_download, mo
     assert len(response.json()["article_images"]) == 3
 
 
-def test_parse_api_no_image_error(monkeypatch):
+def test_parse_api_no_image_error(monkeypatch, persisted_store):
     monkeypatch.setattr(scrape, "fetch_article", AsyncMock(return_value=FetchedArticle(
         url=URL, html=sample("no_image.html"), title="No graphic"
     )))

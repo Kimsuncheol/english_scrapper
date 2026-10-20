@@ -5,18 +5,69 @@ metadata and lesson-image URLs, then downloads and validates the selected image
 in memory. Tesseract recognizes Korean and English text and returns word regions
 with confidence and pixel bounding boxes. A conservative layout parser organizes
 supported labeled sections into lesson fields. No request files are written at runtime.
-Manual scraping remains stateless; an optional daily workflow persists results in
-external PostgreSQL and exposes saved lessons through the API.
+Manual and scheduled scraping use the same processing/persistence service.
+Results are saved in external PostgreSQL and can be retrieved through the API.
 
 The lesson graphic is a raster image: this service locates and downloads it,
 then recognizes its pixels with OCR. It does **not** extract the graphic as
 native/selectable text from the article HTML. Page metadata comes from HTML/page
 data, while lesson text is an OCR estimate that can contain errors.
 
+## Saved article API
+
+Configure `DATABASE_URL` even when `SCRAPE_ENABLED=false` if using manual
+scraping. There is no ephemeral/local storage fallback. `/health` does not need
+PostgreSQL or OCR initialization.
+
+| Endpoint | Response |
+| --- | --- |
+| `POST /api/v1/scrape` | Submit `{"article_url":"https://www.chosun.com/.../"}`; return the complete `ScrapeResponse` and a `Location: /api/v1/articles/{article_id}` header |
+| `GET /api/v1/jobs/status` | Enabled state, schedule/timezone, `last_run`, `next_scheduled_at` (null when disabled), and `latest_run_result` with status, counts, error code and finish time |
+| `GET /api/v1/articles?limit=20&offset=0` | Paginated `{items, total, limit, offset}`; items contain stable ID, canonical URL, article metadata, processing status and creation/update timestamps |
+| `GET /api/v1/articles/{article_id}` | `{id, canonical_url, payload, created_at, updated_at}`; `payload` includes image metadata, OCR regions/raw text, structured lesson fields and processing status |
+
+Manual and scheduled requests call the same fetch → parse → image download → OCR
+→ lesson parsing pipeline and persistence service. PostgreSQL article locks stop
+overlapping work for the same normalized URL. Known successful duplicates return
+the first saved response with `200`, without another download or OCR call. The
+canonical URL is unique across all saved results; an unseen alias may need one
+processing pass to discover its canonical URL, but cannot overwrite the first
+saved result or create a second record. Successful alias mappings survive restarts.
+Partial/empty OCR results are also retained for review and reused on submission.
+
+An in-flight duplicate receives `503 scrape_busy`; retry after the first request
+finishes. Failed processing returns its existing concise application error and
+records the URL/error for a later submission or daily retry. Database outages
+return `503 storage_unavailable`; a response never claims a successful save before
+the database commit. Unknown saved IDs return `404 article_not_found`; invalid URL
+or pagination inputs return `422 validation_error`. The API never returns database
+credentials, upstream exception strings, image bytes or article HTML.
+
+```sh
+BASE_URL=http://127.0.0.1:8000
+curl --fail "$BASE_URL/api/v1/jobs/status"
+curl --fail "$BASE_URL/api/v1/articles?limit=10&offset=0"
+# Use an ID from items[].id or the manual response's Location header.
+curl --fail "$BASE_URL/api/v1/articles/ARTICLE_ID"
+```
+
+Pagination uses `limit` (1–100, default 20) and `offset` (nonnegative, default 0).
+Results are ordered by creation time descending, with ID as the tie-breaker. Each
+page's total/items use a consistent database snapshot; newly added records between
+requests can shift offsets. No saved records returns `200` with an empty `items`
+array and `total: 0`.
+
+The existing `/jobs/daily`, `/lessons`, and `/lessons/{lesson_id}` routes remain
+available for compatibility; `/lessons` retains its original array response.
+Article/status reads and manual scraping currently have no per-user access
+controls. The existing global scrape/OCR admission limits apply; this is not a
+public multi-user rate limiter. Keep request frequency cautious and add access
+controls before exposing an unrestricted OCR submission service.
+
 ## Optional daily scrape workflow
 
-Repository inspection found **no existing database or persistent storage**. The
-manual endpoint still requires neither. Daily scraping adds PostgreSQL persistence;
+Before the daily workflow, the repository had no database or persistent storage.
+Both manual and scheduled processing now use PostgreSQL persistence;
 there is deliberately **no SQLite/local-file fallback** on Render Free. Models
 remain Docker image contents; request images are never saved to disk.
 
@@ -31,7 +82,7 @@ which is documentation only; the app does not automatically load dotenv files):
 | `SCRAPE_TIMEZONE` | `Asia/Seoul` | IANA schedule timezone |
 | `SCRAPE_HOUR` | `6` | Local hour, 0–23 |
 | `SCRAPE_MINUTE` | `0` | Local minute, 0–59 |
-| `DATABASE_URL` | unset | Persistent PostgreSQL URL; required when enabled |
+| `DATABASE_URL` | unset | Persistent PostgreSQL URL; required for manual scraping, saved results, and enabled scheduling |
 | `SCRAPE_TRIGGER_TOKEN` | unset | Secret Bearer token for external triggers |
 | `SCRAPE_DAILY_MAX_ARTICLES` | `5` | Maximum queued articles attempted in one daily batch, supported range 1–20 |
 | `SCRAPE_RETRY_ATTEMPTS` | `3` | Total attempts per transient operation, supported range 1–5 |
@@ -85,8 +136,8 @@ Tracking URLs remove query/fragment tracking and unify `chosun.com` with
 `www.chosun.com`. Successful URLs are not processed again on the next day or after
 restarts. Canonical-result uniqueness prevents duplicate saved lessons. Partial or
 empty OCR responses are saved with their reviewable status rather than invented
-text. Manual `POST /api/v1/scrape` remains available and stateless; daily persistence
-does not change its response schema.
+text. Manual `POST /api/v1/scrape` uses the same persistence boundary and keeps
+its existing `ScrapeResponse` body, with a `Location` header for the saved record.
 
 ### Locking, failures and catch-up
 
@@ -182,8 +233,9 @@ export SCRAPE_TRIGGER_TOKEN="$(python3 -c 'import secrets; print(secrets.token_u
 
 Keep this process running for the local timer. Starting after the due time can
 immediately discover/process the rolling backlog. Leave `SCRAPE_ENABLED=false`
-for unit tests/manual-only development. Health and manual scraping still work
-without `DATABASE_URL`; saved-result routes return `503 storage_unavailable`.
+to disable scheduling during development. Manual processing still needs
+`DATABASE_URL`. Without it, `/health` and disabled job status work, while manual
+scraping and saved-result routes return `503 storage_unavailable`.
 The schema is initialized automatically on first daily/status/result database use.
 
 ```sh
@@ -244,6 +296,8 @@ Then, from the repository root:
 ```sh
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
+# Set a durable dev PostgreSQL connection before scraping.
+export DATABASE_URL='postgresql://localhost/english_scrapper'
 .venv/bin/python -m uvicorn app.main:app --reload
 ```
 
@@ -680,6 +734,7 @@ app/
     ocr.py             # Replaceable engine interface and process-wide OCR service
     lesson.py          # Conservative layout-aware lesson post-processing
     daily.py           # Daily runner, retries and in-process timer
+    saved.py           # Shared idempotent processing and persistence
     discovery.py       # Publisher-listed English-series links
     storage.py         # PostgreSQL history, queue, results and advisory lock
     urls.py            # HTTPS article-host policy
@@ -697,6 +752,7 @@ tests/
   test_lesson.py
   test_daily.py
   test_daily_postgres.py
+  test_saved_api.py
 ```
 
 ## Available checks
@@ -903,8 +959,8 @@ runtime. The existing OCR binding needs system libraries and language files that
 `pip install` alone cannot supply. `render.yaml` describes this same Docker
 approach with `plan: free`, `/health`, and conservative environment settings. It
 creates one web service with no disk, provisioned database, separate worker, or
-GPU. The optional daily scheduler requires an external persistent PostgreSQL URL;
-it is disabled in the Blueprint until configured.
+GPU. Manual/scheduled persistence requires an external PostgreSQL URL. The
+optional daily scheduler is disabled in the Blueprint until configured.
 
 ### Python, dependencies and system packages
 
@@ -971,8 +1027,9 @@ while health stays responsive.
 4. Review the proposed `english-scrapper` service: runtime **Docker**, plan
    **Free**, Dockerfile `./Dockerfile`, context `.`, health path `/health`.
    Do not change to a paid instance or add a disk to make the example work.
-5. Confirm the environment values below and deploy the Blueprint. Manual scraping needs no secrets or paid integrations.
-   For daily scraping, also complete the storage/wake-up setup below.
+5. Confirm the environment values below and configure a durable `DATABASE_URL`
+   for manual scraping and saved results. For daily scraping, also complete the
+   storage/wake-up setup above. No external database is provisioned automatically.
 6. Follow the build/deploy logs. Once live, open the assigned `onrender.com` URL
    with `/health`; it should return `{"status":"ok"}`. Open `/docs` and submit a
    real approved Chosun article URL to verify the OCR pipeline separately.
@@ -1004,12 +1061,13 @@ Use this route **instead of** creating a Blueprint service to avoid duplicates.
 ### Required environment and safe defaults
 
 The Blueprint sets the following explicitly. The same defaults are already in
-the Docker image/application, so **no manually supplied secret or API key is
-required** for the manual API. Enabling the daily workflow additionally requires
-`DATABASE_URL` and `SCRAPE_TRIGGER_TOKEN` as described below.
+the Docker image/application. Manual scraping and saved results additionally
+require a durable `DATABASE_URL`; no OCR API key is needed. External daily
+triggers also require `SCRAPE_TRIGGER_TOKEN` as described above.
 
 | Variable | Value | Supplied by |
 | --- | --- | --- |
+| `DATABASE_URL` | Durable direct/session PostgreSQL URL | Set privately in Render Environment; required for scraping and saved results |
 | `PORT` | Render-selected port | Render automatically; leave unset |
 | `TESSDATA_PREFIX` | `/usr/share/tesseract-ocr/5/tessdata` | Docker image and Blueprint |
 | `OMP_THREAD_LIMIT` | `1` | Docker image and Blueprint |

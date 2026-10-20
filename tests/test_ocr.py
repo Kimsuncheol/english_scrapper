@@ -236,7 +236,7 @@ def test_environment_config(monkeypatch):
     assert (config.min_confidence, config.max_pixels, config.timeout_ms) == (0.7, 1000000, 1000)
 
 
-def test_api_maps_ocr_initialization_failure(monkeypatch, mock_image_download):
+def test_api_maps_ocr_initialization_failure(monkeypatch, mock_image_download, persisted_store):
     html = '<script>Fusion.globalContent = {"content_elements":[{"type":"image","url":"https://images.chosun.com/a.png"}]};</script>'
     monkeypatch.setattr(scrape, "fetch_article", AsyncMock(return_value=FetchedArticle(url="https://www.chosun.com/example/", html=html, title="Test")))
     monkeypatch.setattr(scrape, "recognize_image", AsyncMock(side_effect=OCRError("ocr_unavailable", "OCR unavailable", 503)))

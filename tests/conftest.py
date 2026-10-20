@@ -8,6 +8,20 @@ from app.schemas import OCRText
 
 
 @pytest.fixture
+def persisted_store():
+    """Storage double for existing HTTP/OCR pipeline endpoint tests."""
+    from app.dependencies import get_store
+    from app.main import app
+    from test_daily import MemoryStore
+    store = MemoryStore()
+    app.dependency_overrides[get_store] = lambda: store
+    try:
+        yield store
+    finally:
+        app.dependency_overrides.pop(get_store, None)
+
+
+@pytest.fixture
 def mock_image_download(monkeypatch):
     """Keep API/parser tests separate from image transport and decoding tests."""
     download = AsyncMock(side_effect=lambda image: DownloadedImage(data=b"test-image", metadata=image))

@@ -17,6 +17,7 @@ from app.services import article, images, ocr, scrape
 
 FIXTURES = Path(__file__).parent / "fixtures"
 URL = "https://www.chosun.com/lesson/one/"
+pytestmark = pytest.mark.usefixtures("persisted_store")
 
 
 def raster(name="one"):

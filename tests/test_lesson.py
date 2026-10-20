@@ -190,7 +190,7 @@ def test_ambiguous_wide_heading_does_not_reassign_its_content():
     assert result.fields.korean_meaning is None
 
 
-def test_api_keeps_raw_output_for_unsupported_layout(monkeypatch, mock_image_download):
+def test_api_keeps_raw_output_for_unsupported_layout(monkeypatch, mock_image_download, persisted_store):
     ocr, image = load("lesson_ocr_ambiguous.json")
     html = '<script>Fusion.globalContent = {"content_elements":[{"type":"image","url":"https://images.chosun.com/lesson.png","width":1000,"height":1050}]};</script>'
     monkeypatch.setattr(scrape, "fetch_article", AsyncMock(return_value=FetchedArticle(
@@ -203,7 +203,7 @@ def test_api_keeps_raw_output_for_unsupported_layout(monkeypatch, mock_image_dow
     assert response.json()["lesson"]["reasons"]
 
 
-def test_api_preserves_ocr_and_adds_lesson(monkeypatch, mock_image_download):
+def test_api_preserves_ocr_and_adds_lesson(monkeypatch, mock_image_download, persisted_store):
     ocr, image = load("lesson_ocr_single_column.json")
     before = ocr.model_dump(mode="json")
     html = '<script>Fusion.globalContent = {"content_elements":[{"type":"image","url":"https://images.chosun.com/lesson.png","width":1000,"height":1050}]};</script>'

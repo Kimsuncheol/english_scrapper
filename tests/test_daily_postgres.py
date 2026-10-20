@@ -7,6 +7,7 @@ from uuid import uuid4
 import psycopg
 from psycopg import sql
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock
 
@@ -14,6 +15,7 @@ from app.main import app
 from app.daily_config import DailyConfig
 from app.services.daily import DailyRunner
 from app.services.storage import PostgresStore
+from app.services import scrape as scrape_service
 from test_daily import ONE, NOW, result
 
 pytestmark = pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="Set an isolated TEST_DATABASE_URL for PostgreSQL integration tests")
@@ -117,3 +119,77 @@ def test_job_status_and_saved_lesson_routes_use_persistent_results(monkeypatch):
         assert client.get("/api/v1/lessons/unknown").status_code == 404
         assert client.get("/api/v1/lessons?limit=101").status_code == 422
         assert client.get("/health").status_code == 200
+
+
+def test_manual_scrape_round_trip_idempotency_and_scheduled_reuse(monkeypatch):
+    store = asyncio.run(make_store())
+    processor = AsyncMock(return_value=result())
+    monkeypatch.setattr(scrape_service, "scrape_article", processor)
+    monkeypatch.setenv("SCRAPE_ENABLED", "false")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with TestClient(app) as client:
+        runner = DailyRunner(DailyConfig(database_url=store.url), store)
+        app.state.daily_runner = runner
+        first = client.post("/api/v1/scrape", json={"article_url": ONE + "?tracking=x"})
+        duplicate = client.post("/api/v1/scrape", json={"article_url": ONE.replace("www.chosun.com", "chosun.com")})
+        assert first.status_code == duplicate.status_code == 200
+        assert first.json() == duplicate.json()
+        processor.assert_awaited_once()
+        article_id = first.headers["location"].rsplit("/", 1)[-1]
+        listing = client.get("/api/v1/articles?limit=1&offset=0")
+        assert listing.status_code == 200
+        assert listing.json()["total"] == 1
+        assert listing.json()["items"][0]["id"] == article_id
+        assert client.get("/api/v1/articles?limit=1&offset=1").json()["items"] == []
+        # A new repository instance reads the same persisted result.
+        runner.store = PostgresStore(store.url, store.schema)
+        saved = client.get(first.headers["location"])
+        assert saved.json()["payload"] == first.json()
+        assert saved.json()["created_at"]
+        assert client.get("/api/v1/articles/unknown").status_code == 404
+
+        scheduled = DailyRunner(DailyConfig(enabled=True, database_url=store.url),
+            runner.store, AsyncMock(return_value=[ONE]), processor)
+        assert asyncio.run(scheduled.run_due(NOW)) == "completed"
+        processor.assert_awaited_once()
+        app.state.daily_runner = scheduled
+        status = client.get("/api/v1/jobs/status").json()
+        assert status["enabled"] and status["next_scheduled_at"]
+        assert status["last_run"]["status"] == "completed"
+        assert status["latest_run_result"]["stats"]["skipped"] == 1
+        assert status["latest_run_result"]["finished_at"]
+
+
+def test_concurrent_manual_and_scheduled_article_work_uses_postgres_lock(monkeypatch):
+    async def run():
+        store = await make_store()
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def process(url):
+            entered.set()
+            await release.wait()
+            return result()
+        processor = AsyncMock(side_effect=process)
+        monkeypatch.setattr(scrape_service, "scrape_article", processor)
+        runner = DailyRunner(DailyConfig(database_url=store.url), store)
+        monkeypatch.setattr(app.state, "daily_runner", runner, raising=False)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            first = asyncio.create_task(client.post("/api/v1/scrape", json={"article_url": ONE}))
+            await asyncio.wait_for(entered.wait(), 3)
+            try:
+                busy = await client.post("/api/v1/scrape", json={"article_url": ONE + "?utm=x"})
+                assert busy.status_code == 503
+                assert busy.json()["error"]["code"] == "scrape_busy"
+                scheduled = DailyRunner(DailyConfig(enabled=True, database_url=store.url,
+                    retry_attempts=1, request_gap_seconds=0), store,
+                    AsyncMock(return_value=[ONE]), processor)
+                assert await scheduled.run_due(NOW) == "partial"
+                assert (await store.status())["last_run"]["stats"]["failed"] == 1
+            finally:
+                release.set()
+            first = await first
+            assert first.status_code == 200
+            repeated = await client.post("/api/v1/scrape", json={"article_url": ONE})
+            assert repeated.json() == first.json()
+            processor.assert_awaited_once()
+            assert (await store.articles())["total"] == 1
+    asyncio.run(run())

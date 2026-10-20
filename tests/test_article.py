@@ -194,7 +194,7 @@ def test_redirect_destination_resolved_again(monkeypatch):
     assert resolver.await_count == 2
 
 
-def test_fetch_error_is_exposed_through_api(monkeypatch):
+def test_fetch_error_is_exposed_through_api(monkeypatch, persisted_store):
     from app.services import scrape
     monkeypatch.setattr(scrape, "fetch_article", AsyncMock(side_effect=ArticleFetchError("article_timeout", "Timed out fetching the article.", 504)))
     result = TestClient(app).post("/api/v1/scrape", json={"article_url": URL})

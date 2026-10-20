@@ -9,8 +9,8 @@ import time
 from app.daily_config import DailyConfig
 from app.services.discovery import discover_articles
 from app.services.errors import ArticleFetchError
-from app.services.scrape import scrape_article
 from app.services.storage import PostgresStore
+from app.services.saved import process_and_store
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ async def retry(operation, config, sleep=asyncio.sleep):
 
 
 class DailyRunner:
-    def __init__(self, config: DailyConfig, store=None, discover=discover_articles, scrape=scrape_article, sleep=asyncio.sleep):
+    def __init__(self, config: DailyConfig, store=None, discover=discover_articles, scrape=None, sleep=asyncio.sleep):
         self.config = config
         self.store = store or PostgresStore(config.database_url)
         self.discover, self.scrape, self.sleep = discover, scrape, sleep
@@ -84,11 +84,10 @@ class DailyRunner:
                     for item in pending:
                         url = item["url"]
                         async def process():
-                            await session.attempt(url)
-                            return await self.scrape(url)
+                            await session.check_connection()
+                            return await process_and_store(self.store, url, self.scrape)
                         try:
-                            result = await retry(process, self.config, self.sleep)
-                            saved = await session.save(url, result)
+                            _, saved = await retry(process, self.config, self.sleep)
                             stats["saved" if saved else "skipped"] += 1
                         except ArticleFetchError as exc:
                             await session.failed(url, exc.code)

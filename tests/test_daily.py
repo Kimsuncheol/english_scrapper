@@ -2,6 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import NAMESPACE_URL, uuid5
 from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
@@ -39,6 +40,47 @@ class MemoryStore:
         self.runs = {}
         self.items = {}
         self.saved = {}
+        self.article_locks = set()
+
+    @asynccontextmanager
+    async def article_session(self, url):
+        if url in self.article_locks:
+            raise ArticleFetchError("scrape_busy", "This article is being processed. Retry later.", 503)
+        self.article_locks.add(url)
+        try:
+            yield self
+        finally:
+            self.article_locks.remove(url)
+
+    async def cached(self, url):
+        canonical = self.items.get(url, {}).get("canonical", url)
+        value = self.saved.get(canonical)
+        if value is None:
+            return None
+        return {"id": str(uuid5(NAMESPACE_URL, canonical)), "canonical_url": canonical,
+            "payload": value.model_dump(mode="json"), "created_at": NOW, "updated_at": NOW}
+
+    async def complete(self, url, lesson_id):
+        canonical = next(key for key in self.saved if str(uuid5(NAMESPACE_URL, key)) == lesson_id)
+        self.items[url].update(state="succeeded", canonical=canonical, error_code=None)
+
+    async def check_connection(self):
+        pass
+
+    async def lesson(self, lesson_id):
+        for url in self.saved:
+            record = await self.cached(url)
+            if record["id"] == lesson_id:
+                return record
+        return None
+
+    async def articles(self, limit=20, offset=0):
+        items = []
+        for url, value in self.saved.items():
+            record = await self.cached(url)
+            record.pop("payload")
+            items.append({**record, "article": value.article, "processing_status": value.processing.status})
+        return {"items": items[offset:offset + limit], "total": len(items), "limit": limit, "offset": offset}
 
     @asynccontextmanager
     async def run_session(self):
@@ -72,9 +114,10 @@ class MemoryStore:
         self.items[url]["state"] = "processing"
 
     async def save(self, url, response):
-        is_new = url not in self.saved
-        self.saved[url] = response
-        self.items[url]["state"] = "succeeded"
+        canonical = stable_url(response.article.url)
+        is_new = canonical not in self.saved
+        self.saved.setdefault(canonical, response)
+        self.items[url].update(state="succeeded", canonical=canonical)
         return is_new
 
     async def failed(self, url, code):

@@ -29,5 +29,5 @@ services:
         value: "6"
       - key: SCRAPE_MINUTE
         value: "0"
-# DATABASE_URL and SCRAPE_TRIGGER_TOKEN are deployment secrets configured in
-# the dashboard before enabling scheduling. No expiring Free DB is provisioned.
+# Configure DATABASE_URL in the dashboard for manual/scheduled persistence.
+# SCRAPE_TRIGGER_TOKEN enables external triggers. No Free DB is provisioned.

@@ -250,7 +250,7 @@ def test_http_errors(monkeypatch, status, code):
     assert error.value.code == code
 
 
-def test_api_uses_downloaded_metadata_and_maps_image_errors(monkeypatch, mock_ocr):
+def test_api_uses_downloaded_metadata_and_maps_image_errors(monkeypatch, mock_ocr, persisted_store):
     html = '<title>Lesson</title><script>Fusion.globalContent = {"type":"story","content_elements":[{"type":"image","url":"https://images.chosun.com/lesson.png","width":800,"height":2000}]};</script>'
     monkeypatch.setattr(scrape, "fetch_article", AsyncMock(return_value=FetchedArticle(url="https://www.chosun.com/example/", html=html, title="Lesson")))
     real_download = images.download_lesson_image
@@ -265,6 +265,6 @@ def test_api_uses_downloaded_metadata_and_maps_image_errors(monkeypatch, mock_oc
     assert result.json()["ocr"]["raw_text"] == "안녕하세요 Hello"
     assert "data" not in result.json()["lesson_image"]
     monkeypatch.setattr(scrape, "download_lesson_image", AsyncMock(side_effect=ImageDownloadError("image_timeout", "Timed out", 504)))
-    result = TestClient(app).post("/api/v1/scrape", json={"article_url": "https://www.chosun.com/example/"})
+    result = TestClient(app).post("/api/v1/scrape", json={"article_url": "https://www.chosun.com/another-example/"})
     assert result.status_code == 504
     assert result.json()["error"]["code"] == "image_timeout"

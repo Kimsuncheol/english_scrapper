@@ -81,6 +81,18 @@ class PostgresStore:
             # awaited network/OCR operations. Closing it releases the lock.
             yield RunSession(conn)
 
+    @asynccontextmanager
+    async def article_session(self, url):
+        """Exclude overlapping manual/scheduled work for a normalized URL."""
+        await self.initialize()
+        async with await self.connect() as conn:
+            row = await (await conn.execute(
+                "SELECT pg_try_advisory_lock(7281946, hashtext(%s)) AS acquired", (url,)
+            )).fetchone()
+            if not row["acquired"]:
+                raise ArticleFetchError("scrape_busy", "This article is being processed. Retry later.", 503)
+            yield RunSession(conn)
+
     async def status(self):
         await self.initialize()
         async with await self.connect() as conn:
@@ -100,10 +112,29 @@ class PostgresStore:
         async with await self.connect() as conn:
             return await (await conn.execute("SELECT * FROM saved_lessons WHERE id=%s", (lesson_id,))).fetchone()
 
+    async def articles(self, limit=20, offset=0):
+        await self.initialize()
+        async with await self.connect() as conn:
+            async with conn.transaction():
+                await conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                total = await (await conn.execute("SELECT count(*) AS total FROM saved_lessons")).fetchone()
+                items = await (await conn.execute("""SELECT id, canonical_url, payload->'article' AS article,
+                    payload->'processing'->>'status' AS processing_status, created_at, updated_at
+                    FROM saved_lessons ORDER BY created_at DESC, id LIMIT %s OFFSET %s""", (limit, offset))).fetchall()
+                return {"items": items, "total": total["total"], "limit": limit, "offset": offset}
+
 
 class RunSession:
     def __init__(self, conn):
         self.conn = conn
+
+    async def check_connection(self):
+        await self.conn.execute("SELECT 1")
+
+    async def cached(self, url):
+        return await (await self.conn.execute("""SELECT saved_lessons.* FROM saved_lessons
+            WHERE canonical_url=%s OR id=(SELECT lesson_id FROM daily_articles WHERE url=%s)
+            LIMIT 1""", (url, url))).fetchone()
 
     async def start(self, day):
         run_id = str(uuid5(NAMESPACE_URL, "chosun-daily:" + str(day)))
@@ -141,8 +172,11 @@ class RunSession:
         async with self.conn.transaction():
             row = await (await self.conn.execute("""INSERT INTO saved_lessons(id,canonical_url,payload) VALUES (%s,%s,%s)
                 ON CONFLICT (canonical_url) DO NOTHING RETURNING id""", (lesson_id, canonical, Jsonb(result.model_dump(mode="json"))))).fetchone()
-            await self.conn.execute("UPDATE daily_articles SET state='succeeded', error_code=NULL, lesson_id=%s WHERE url=%s", (lesson_id, url))
+            await self.complete(url, lesson_id)
         return row is not None
+
+    async def complete(self, url, lesson_id):
+        await self.conn.execute("UPDATE daily_articles SET state='succeeded', error_code=NULL, lesson_id=%s WHERE url=%s", (lesson_id, url))
 
     async def failed(self, url, code):
         await self.conn.execute("UPDATE daily_articles SET state='failed', error_code=%s WHERE url=%s", (code, url))

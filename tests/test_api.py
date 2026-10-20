@@ -8,6 +8,7 @@ from app.schemas import ScrapeResponse
 from app.services import scrape as scrape_service
 
 client = TestClient(app)
+pytestmark = pytest.mark.usefixtures("persisted_store")
 
 
 def test_health():

@@ -3,14 +3,15 @@
 from datetime import datetime, timezone
 import secrets
 
-from fastapi import APIRouter, Header, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 import psycopg
 
-from app.schemas import DailyStatusResponse, DailyTriggerResponse, ErrorResponse, SavedLessonResponse, SavedLessonSummary
+from app.dependencies import get_store
+from app.schemas import ArticlePage, DailyRunResult, DailyStatusResponse, DailyTriggerResponse, ErrorResponse, SavedLessonResponse, SavedLessonSummary
 from app.services.errors import ArticleFetchError
 from app.services.storage import StorageUnavailable
 
-router = APIRouter(prefix="/api/v1", responses={503: {"model": ErrorResponse}})
+router = APIRouter(prefix="/api/v1", responses={422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
 
 
 def runner(request):
@@ -18,6 +19,7 @@ def runner(request):
 
 
 @router.get("/jobs/daily", response_model=DailyStatusResponse)
+@router.get("/jobs/status", response_model=DailyStatusResponse)
 async def daily_status(request: Request):
     service = runner(request)
     config = service.config
@@ -29,7 +31,8 @@ async def daily_status(request: Request):
             raise StorageUnavailable() from exc
     return DailyStatusResponse(enabled=config.enabled, timezone=config.timezone,
         hour=config.hour, minute=config.minute, storage_configured=bool(config.database_url),
-        next_scheduled_at=config.next_due(datetime.now(timezone.utc)),
+        next_scheduled_at=config.next_due(datetime.now(timezone.utc)) if config.enabled else None,
+        latest_run_result=DailyRunResult.model_validate(data["last_run"]) if data["last_run"] else None,
         local_error_code=service.error_code, **data)
 
 
@@ -63,4 +66,24 @@ async def saved_lesson(request: Request, lesson_id: str):
         raise StorageUnavailable() from exc
     if value is None:
         raise ArticleFetchError("lesson_not_found", "No saved lesson has that ID.", 404)
+    return value
+
+
+@router.get("/articles", response_model=ArticlePage)
+async def saved_articles(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0), store=Depends(get_store)):
+    try:
+        return await store.articles(limit, offset)
+    except (psycopg.Error, OSError) as exc:
+        raise StorageUnavailable() from exc
+
+
+@router.get("/articles/{article_id}", response_model=SavedLessonResponse,
+    responses={404: {"model": ErrorResponse}})
+async def saved_article(article_id: str, store=Depends(get_store)):
+    try:
+        value = await store.lesson(article_id)
+    except (psycopg.Error, OSError) as exc:
+        raise StorageUnavailable() from exc
+    if value is None:
+        raise ArticleFetchError("article_not_found", "No saved article has that ID.", 404)
     return value

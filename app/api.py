@@ -1,9 +1,10 @@
 """Thin HTTP routes delegating extraction to the service layer."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Response
 
 from app.schemas import ErrorResponse, HealthResponse, ScrapeRequest, ScrapeResponse
-from app.services import scrape as scrape_service
+from app.dependencies import get_store
+from app.services.saved import process_and_store
 
 router = APIRouter()
 
@@ -25,5 +26,7 @@ async def health() -> HealthResponse:
         503: {"model": ErrorResponse, "description": "Service or OCR busy, or OCR unavailable"},
     },
 )
-async def scrape(request: ScrapeRequest) -> ScrapeResponse:
-    return await scrape_service.scrape_article(request.article_url)
+async def scrape(request: ScrapeRequest, response: Response, store=Depends(get_store)) -> ScrapeResponse:
+    saved, _ = await process_and_store(store, request.article_url)
+    response.headers["Location"] = f"/api/v1/articles/{saved.id}"
+    return saved.payload

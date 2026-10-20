@@ -150,16 +150,24 @@ class DailyFailure(BaseModel):
     last_attempt_at: datetime | None
 
 
+class DailyRunResult(BaseModel):
+    status: str
+    stats: dict[str, int]
+    error_code: str | None = None
+    finished_at: datetime | None = None
+
+
 class DailyStatusResponse(BaseModel):
     enabled: bool
     timezone: str
     hour: int
     minute: int
     storage_configured: bool
-    next_scheduled_at: datetime
+    next_scheduled_at: datetime | None = None
     last_run: DailyRunRecord | None = None
     failures: list[DailyFailure] = Field(default_factory=list)
     local_error_code: str | None = None
+    latest_run_result: DailyRunResult | None = None
 
 
 class DailyTriggerResponse(BaseModel):
@@ -181,3 +189,10 @@ class SavedLessonResponse(BaseModel):
     payload: ScrapeResponse
     created_at: datetime
     updated_at: datetime
+
+
+class ArticlePage(BaseModel):
+    items: list[SavedLessonSummary]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
