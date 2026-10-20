@@ -173,7 +173,7 @@ def test_jsonld_article_matches_canonical_instead_of_related_story():
     assert parse_article_html(html, URL).article.title == "오늘의 영어: Hello {world}"
 
 
-def test_parse_api_returns_metadata_and_no_ocr(monkeypatch):
+def test_parse_api_returns_metadata_and_no_ocr(monkeypatch, mock_image_download):
     monkeypatch.setattr(scrape, "fetch_article", AsyncMock(return_value=FetchedArticle(
         url=URL, html=sample("fusion_lesson.html"), title="Lesson"
     )))

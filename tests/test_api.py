@@ -16,7 +16,7 @@ def test_health():
     assert response.json() == {"status": "ok"}
 
 
-def test_valid_scrape_returns_parsed_article_without_ocr(monkeypatch):
+def test_valid_scrape_returns_parsed_article_without_ocr(monkeypatch, mock_image_download):
     from pathlib import Path
     from app.services.article import FetchedArticle
     html = (Path(__file__).parent / "fixtures" / "fusion_lesson.html").read_text()

@@ -43,6 +43,9 @@ class LessonImageMetadata(BaseModel):
     source: Literal["content_elements", "og:image"] = "content_elements"
     is_fallback: bool = False
     content_element_path: list[int] | None = None
+    byte_size: int | None = Field(default=None, ge=0)
+    format: str | None = None
+    download_url: HttpUrl | None = None
 
 
 class OCRText(BaseModel):

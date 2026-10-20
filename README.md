@@ -1,9 +1,9 @@
 # Chosun English Lesson API
 
 FastAPI service that safely fetches Chosun.com articles and extracts article
-metadata and lesson-image URLs. Image downloading and OCR are not implemented:
-successful requests return parsed metadata with `ocr: null`. No files are written
-at runtime.
+metadata and lesson-image URLs, then downloads and validates the selected image
+in memory. OCR is not implemented: successful requests return metadata with
+`ocr: null`. No files are written at runtime.
 
 ## Run locally
 
@@ -35,7 +35,9 @@ A successful scrape returns HTTP 200:
 - `article`: canonical `url`, `title`, `published_at`, `section`, and `language`.
   Unavailable optional fields are `null`.
 - `lesson_image`: selected original `url`, dimensions, alt text, `resized_urls`,
-  `source`, `is_fallback`, and `content_element_path`.
+  `source`, `is_fallback`, and `content_element_path`. After downloading,
+  `content_type`, `byte_size`, `format`, `download_url`, and measured dimensions
+  describe the verified image. `url` retains the original selected URL.
 - `article_images`: all valid image URL candidates in body content order,
   including those below selection size thresholds. Paths such as `[2]` or
   `[0, 1]` identify indices in body or nested gallery `content_elements`.
@@ -60,7 +62,8 @@ still be used.
 Only `type: image` entries in body `content_elements` and nested
 `gallery`/`container`/`group` elements are considered. Promo and related-story
 images are excluded. Original URLs and provided resize variants are retained;
-no URLs are synthesized or downloaded. Available `additional_properties`
+the parser does not synthesize URLs or download image candidates. The service
+downloads only the selected candidate. Available `additional_properties`
 original URLs take priority over the element URL.
 
 The default `ImageSelectionConfig` in `app/services/parsing.py` uses minimum
@@ -78,8 +81,8 @@ this behavior. If neither source is usable, the API returns `no_lesson_image`.
 Selection is a configurable geometric heuristic, not visual confirmation of a
 lesson. Pass a config to `parse_article_html(html, source_url, config)` to tune it.
 
-Image URLs are untrusted metadata. They are not a download allowlist; a future
-image downloader must apply its own host, redirect, DNS, and byte-size policy.
+Image URLs are untrusted metadata. Being present in an article does not approve
+a host for download; the downloader applies the explicit policy below.
 
 ## Structure
 
@@ -89,9 +92,10 @@ app/
   api.py               # Thin HTTP routes
   schemas.py           # Request, article, image, OCR, and error contracts
   services/
-    scrape.py          # Fetch/parse orchestration
+    scrape.py          # Fetch/parse/download orchestration
     article.py         # Bounded async HTML fetching and article checks
     parsing.py         # Pure metadata parsing and configurable image selection
+    images.py          # In-memory download, format and pixel validation
     urls.py            # HTTPS article-host policy
     errors.py          # Shared application errors
 tests/
@@ -99,6 +103,7 @@ tests/
   test_api.py
   test_article.py
   test_parsing.py
+  test_images.py
 ```
 
 ## Tests
@@ -110,7 +115,8 @@ tests/
 
 Tests use local fixtures and mocked DNS/HTTP transport. No tests access the live
 publisher. Fixture provenance and covered page shapes are documented in
-`tests/fixtures/README.md`. No new parser dependencies are needed.
+`tests/fixtures/README.md`. Pillow verifies downloaded image bytes; image tests
+generate small test images in memory.
 
 ## Fetch policy and errors
 
@@ -137,6 +143,62 @@ Errors use an `error` object with `code`, `message`, and `details`:
 | 502 | `upstream_http_error`, `upstream_network_error`, `redirect_error`, `html_too_large`, `unsupported_encoding` |
 | 504 | `article_timeout` |
 
+## Lesson-image downloads
+
+`download_lesson_image(parsed.lesson_image)` returns a `DownloadedImage` containing
+`data: bytes` and updated `metadata: LessonImageMetadata`, entirely in memory.
+The HTTP API exposes the metadata, not raw image bytes or a local file path.
+`article_images` retains the original unverified candidate metadata. OCR is not
+attempted and downloaded bytes are released after the request completes.
+
+The initial URL comes from the parser-selected article image, including an
+explicitly marked OG fallback. Only HTTPS on port 443 is allowed, with no embedded
+credentials. The explicit approved hosts in `app/services/images.py` are:
+
+- `images.chosun.com`
+- `cloudfront-ap-northeast-1.images.arcpublishing.com`, restricted to `/chosun/`
+  paths because the CDN is shared between publishers.
+
+Article data cannot add new hosts to the allowlist. Extend it only after review;
+there are no wildcard approvals for arbitrary Chosun subdomains or Arc CDN tenants.
+Every redirect is revalidated, even on the same host, and every connection uses a
+checked public IP with the original Host/TLS hostname. Proxy settings from the
+environment are ignored. Unsafe destinations fail without retrying another image
+or bypassing publisher access controls.
+
+`ImageDownloadConfig` configures these defaults per service call:
+
+| Setting | Default |
+| --- | --- |
+| `max_bytes` | 10 MiB, enforced against Content-Length and streamed bytes |
+| `max_pixels` | 16,000,000 decoded pixels |
+| `max_dimension` | 20,000 pixels per side |
+| `connect_timeout` / `read_timeout` | 5 / 10 seconds |
+| `total_timeout` | 30 seconds for DNS, redirects, and network transfer |
+| `max_redirects` | 3 |
+
+For example, pass `config=ImageDownloadConfig(max_bytes=5 * 1024 * 1024)`
+to `download_lesson_image`. Limits are server-controlled, never accepted from
+request bodies. The API currently uses the defaults.
+
+Only JPEG, PNG, WebP, and nonanimated GIF responses are supported. Content-Type
+must agree with the detected format. Pillow verifies the file, then reopens and
+fully decodes it; corrupt, truncated, animated, oversized, and mislabeled images
+are rejected. Pillow decompression-bomb warnings become errors. HTTP compression
+is rejected to avoid decompression expansion before the byte limit. Decoding runs
+off the async event loop with one decode operation at a time; its duration is
+separate from the network timeout. Byte and pixel limits remain necessary to bound
+memory even when a file is small on the wire.
+
+Image errors use the same `error` envelope:
+
+| Status | Codes |
+| --- | --- |
+| 422 | `unsafe_image_url`, `unsafe_image_destination`, `invalid_image_content_type`, `invalid_image`, `image_dimensions_exceeded` |
+| 403 | `image_blocked` |
+| 502 | `image_http_error`, `image_network_error`, `image_redirect_error`, `image_too_large`, `image_encoding_error` |
+| 504 | `image_timeout` |
+
 ## Render Free
 
 Deploy as a Python Web Service using Python 3.12:
@@ -147,7 +209,6 @@ Deploy as a Python Web Service using Python 3.12:
 
 Select the Free instance and omit `--reload`. There is no database, background
 worker, OCR model, browser, or runtime storage requirement. Render's filesystem
-is ephemeral. Future downloads must use bounded memory or unique request-scoped
-temporary files cleaned up on success and failure. Requests must never depend on
-files from earlier requests. Keep one worker and measure memory/latency before
+is ephemeral. Downloads use bounded in-memory bytes and never depend on files
+from earlier requests. Keep one worker and measure memory/latency before
 adding OCR; bound image sizes, decoded pixels, runtime, and concurrent work.
