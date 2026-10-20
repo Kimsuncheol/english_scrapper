@@ -159,6 +159,7 @@ class DailyRunResult(BaseModel):
 
 class DailyStatusResponse(BaseModel):
     enabled: bool
+    in_process_enabled: bool = False
     timezone: str
     hour: int
     minute: int

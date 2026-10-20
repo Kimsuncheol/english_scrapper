@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 @dataclass(frozen=True)
 class DailyConfig:
     enabled: bool = False
+    in_process: bool = False
     timezone: str = "Asia/Seoul"
     hour: int = 6
     minute: int = 0
@@ -38,7 +39,11 @@ class DailyConfig:
         flag = os.getenv("SCRAPE_ENABLED", "false").lower()
         if flag not in {"true", "false"}:
             raise ValueError("SCRAPE_ENABLED must be true or false")
+        timer = os.getenv("SCRAPE_IN_PROCESS", "false").lower()
+        if timer not in {"true", "false"}:
+            raise ValueError("SCRAPE_IN_PROCESS must be true or false")
         return cls(enabled=flag == "true", timezone=os.getenv("SCRAPE_TIMEZONE", "Asia/Seoul"),
+            in_process=timer == "true",
             hour=int(os.getenv("SCRAPE_HOUR", "6")), minute=int(os.getenv("SCRAPE_MINUTE", "0")),
             database_url=os.getenv("DATABASE_URL", ""), trigger_token=os.getenv("SCRAPE_TRIGGER_TOKEN", ""),
             max_articles=int(os.getenv("SCRAPE_DAILY_MAX_ARTICLES", "5")),

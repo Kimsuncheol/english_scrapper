@@ -1,4 +1,4 @@
-"""Best-effort in-process schedule plus an externally wakeable daily job."""
+"""Externally triggered daily job, with an opt-in local development timer."""
 
 import asyncio
 from datetime import datetime, timezone
@@ -125,7 +125,7 @@ class DailyRunner:
             await asyncio.sleep(30)
 
     def start(self):
-        if self.config.enabled:
+        if self.config.enabled and self.config.in_process:
             self.timer = asyncio.create_task(self._loop())
 
     async def stop(self):

@@ -23,6 +23,9 @@ services:
         value: "30000"
       - key: SCRAPE_ENABLED
         value: "false"
+      # The external scheduler owns the clock; no timer runs in a Free web process.
+      - key: SCRAPE_IN_PROCESS
+        value: "false"
       - key: SCRAPE_TIMEZONE
         value: Asia/Seoul
       - key: SCRAPE_HOUR

@@ -130,6 +130,7 @@ class MemoryStore:
 def test_schedule_defaults_and_timezone_boundaries(monkeypatch):
     cfg = DailyConfig.from_env()
     assert not cfg.enabled
+    assert not cfg.in_process
     assert (cfg.timezone, cfg.hour, cfg.minute) == ("Asia/Seoul", 6, 0)
     assert cfg.due_date(datetime(2026, 10, 20, 20, 59, tzinfo=timezone.utc)) is None
     assert str(cfg.due_date(datetime(2026, 10, 20, 21, 0, tzinfo=timezone.utc))) == "2026-10-21"
@@ -140,7 +141,7 @@ def test_schedule_defaults_and_timezone_boundaries(monkeypatch):
     assert DailyConfig.from_env().due_date(datetime(2026, 10, 21, 12, 29, tzinfo=timezone.utc)) is None
 
 
-@pytest.mark.parametrize("name,value", [("SCRAPE_ENABLED", "maybe"), ("SCRAPE_TIMEZONE", "invalid"), ("SCRAPE_HOUR", "24"), ("SCRAPE_MINUTE", "60"), ("DATABASE_URL", "sqlite:///tmp/local.db"), ("SCRAPE_RETRY_ATTEMPTS", "20")])
+@pytest.mark.parametrize("name,value", [("SCRAPE_ENABLED", "maybe"), ("SCRAPE_IN_PROCESS", "maybe"), ("SCRAPE_TIMEZONE", "invalid"), ("SCRAPE_HOUR", "24"), ("SCRAPE_MINUTE", "60"), ("DATABASE_URL", "sqlite:///tmp/local.db"), ("SCRAPE_RETRY_ATTEMPTS", "20")])
 def test_invalid_schedule_config(monkeypatch, name, value):
     monkeypatch.setenv(name, value)
     with pytest.raises((ValueError, KeyError)):
@@ -315,3 +316,39 @@ def test_disabled_or_early_run_has_no_database_or_network_work():
         discover.assert_not_awaited()
         assert not store.runs
     asyncio.run(run())
+
+
+def test_local_timer_is_opt_in_and_disabled_by_default():
+    async def run():
+        discover = AsyncMock(return_value=[])
+        runner = DailyRunner(config(), MemoryStore(), discover)
+        runner.start()
+        await asyncio.sleep(0)
+        assert runner.timer is None and runner.task is None
+        discover.assert_not_awaited()
+        local = DailyRunner(config(in_process=True), MemoryStore(), discover)
+        local.start()
+        assert local.timer is not None
+        await local.stop()
+        disabled = DailyRunner(DailyConfig(in_process=True), MemoryStore(), discover)
+        disabled.start()
+        assert disabled.timer is None
+    asyncio.run(run())
+
+
+def test_enabled_external_mode_does_not_touch_database_on_startup(monkeypatch):
+    monkeypatch.setenv("SCRAPE_ENABLED", "true")
+    monkeypatch.setenv("SCRAPE_IN_PROCESS", "false")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/unavailable-test-database")
+    connect = AsyncMock(side_effect=AssertionError("No startup database work"))
+    monkeypatch.setattr("app.services.storage.PostgresStore.connect", connect)
+    with TestClient(app) as client:
+        assert client.get("/health").status_code == 200
+        assert app.state.daily_runner.timer is None
+        assert app.state.daily_runner.task is None
+    connect.assert_not_awaited()
+
+
+def test_timer_environment_flag_is_parsed(monkeypatch):
+    monkeypatch.setenv("SCRAPE_IN_PROCESS", "true")
+    assert DailyConfig.from_env().in_process is True

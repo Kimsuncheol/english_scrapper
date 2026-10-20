@@ -78,7 +78,8 @@ which is documentation only; the app does not automatically load dotenv files):
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SCRAPE_ENABLED` | `false` | Enable the application timer/daily runner |
+| `SCRAPE_ENABLED` | `false` | Allow the protected daily job to run |
+| `SCRAPE_IN_PROCESS` | `false` | Opt-in local timer; keep false on Render Free and use an external scheduler |
 | `SCRAPE_TIMEZONE` | `Asia/Seoul` | IANA schedule timezone |
 | `SCRAPE_HOUR` | `6` | Local hour, 0–23 |
 | `SCRAPE_MINUTE` | `0` | Local minute, 0–59 |
@@ -165,29 +166,45 @@ saved results: a crash between OCR and the database commit can repeat a download
 or OCR, but cannot create another canonical saved lesson. A database connection
 loss aborts further work on that session. No local filesystem lock is used.
 
-The in-process asyncio timer checks every 30 seconds **while the service is
-awake**, launching at/after the configured local time once per date. On a late
-wake-up after today's scheduled time, it catches up today's run rather than
-creating a historical run for every missed date. UTC timestamps are stored; local
-dates define the daily key. Scheduling does not block `/health` or initialize OCR
-until a lesson actually reaches that stage. Database outage/reconnect attempts
-are throttled locally; `/health` remains liveness, not database readiness.
+The default deployment starts **no in-process timer**, even when
+`SCRAPE_ENABLED=true`. An external scheduler owns the daily clock and invokes the
+protected trigger. The job itself runs in the single FastAPI process only while
+that batch is active. If it is interrupted, the next authenticated trigger can
+resume the durable run under a new database lock. UTC timestamps are stored;
+local dates define the daily key. A late trigger catches up today's run rather
+than inventing a historical run for every missed date. Starting FastAPI or calling
+`/health` does not start a job or initialize OCR. `/health` is liveness, not
+database readiness.
 
 ### Render Free and external wake-up setup
 
-Render Free sleeps after inactivity, so **an in-process timer alone cannot run
-reliably at a daily wall-clock time**. The included GitHub Actions workflow supplies
-an external wake-up at the default `06:00 Asia/Seoul`, calls the authenticated
-trigger, and polls status every 30 seconds only while waiting for that batch. It
-does not send continuous keep-alive pings between daily jobs. No paid Render Cron
-Job/background-worker service is silently added.
+Official Render documentation checked **2026-10-21**:
+
+- Native Render Cron Jobs are paid, with a **$1/month minimum per cron service**;
+  there is no Free cron plan. [Cron billing](https://render.com/docs/cronjobs#compute-plans-and-billing).
+- Free web services sleep after 15 idle minutes, wake on an incoming request
+  (typically about a minute), and may restart at any time. They do not support
+  one-off jobs or persistent disks. Local filesystem changes are lost on restart,
+  deploy or sleep. [Free web service limits](https://render.com/docs/free).
+- Free Render Postgres expires after 30 days. Free Key Value loses data on
+  restart, so neither is a long-term archive for this workflow without an
+  appropriate durable storage plan. [Free datastore limits](https://render.com/docs/free).
+
+Therefore the Free deployment uses the included **GitHub Actions daily workflow**
+and external PostgreSQL, with no paid always-on worker or Render Cron resource.
+The workflow invokes `scripts/trigger_daily.py` once per day at the default
+`06:00 Asia/Seoul`. That client wakes the service, authenticates the trigger, and
+polls the saved job state every 30 seconds during the active batch. It re-submits
+the idempotent trigger while unfinished so a restarted FastAPI process can resume
+without a local timer. It sends no keep-alive pings between daily batches.
 
 1. Provision/select durable PostgreSQL. In Render Environment set `DATABASE_URL`
    to a direct/session connection URL, and set a strong `SCRAPE_TRIGGER_TOKEN`
    (for example generate one locally with `python -c 'import secrets; print(secrets.token_urlsafe(32))'`).
 2. Set Render `SCRAPE_ENABLED=true` and review timezone/hour/minute. The Blueprint
-   deliberately defaults it to false. Restart/redeploy so the frozen schedule
-   config is reloaded. Keep the existing one-worker command and resource limits.
+   deliberately defaults it to false. Keep **`SCRAPE_IN_PROCESS=false`**.
+   Restart/redeploy so configuration is reloaded. Keep the existing one-worker
+   command and resource limits.
 3. In GitHub repository **Settings → Secrets and variables → Actions**, add
    repository variables `SCRAPE_ENABLED=true` and `SCRAPE_BASE_URL` (the HTTPS
    Render service origin), and a repository secret `SCRAPE_TRIGGER_TOKEN` with
@@ -199,19 +216,60 @@ Job/background-worker service is silently added.
    those two workflow schedule fields**, or configure another trusted external
    scheduler to call the trigger at/after the new due time.
 5. Use **Run workflow** for an initial check after the due time. Inspect
-   `/api/v1/jobs/daily` and `/api/v1/lessons` for persisted results. Before the
+   `/api/v1/jobs/status` and `/api/v1/articles` for persisted results. Confirm
+   `enabled: true` and `in_process_enabled: false`. Before the
    due time the application returns `not_due`; the external script flags a
    mismatched/early wake-up instead of silently pretending a scrape occurred.
 
 GitHub scheduling is best-effort: it can be delayed, and public-repository
 schedules can be disabled after 60 days without activity. Review Actions status
-and usage/billing for your repository plan. The workflow has a 35-minute ceiling;
-the client waits up to 30 minutes after wake-up, and reports partial/failed jobs
-as workflow failures. Raising the five-article default can exceed Free CPU or this
-polling budget. There is no claim that a job will run at the exact second or that
-external scheduler/database provisioning has been performed.
+and usage/billing for your repository plan. Runs can also be dropped during high
+load; this Free design does **not guarantee exact-time or every-day execution**.
+The workflow has a 35-minute ceiling; the client has a 30-minute total budget
+including wake-up and retries, and reports partial/failed jobs as workflow
+failures. Raising the five-article default can exceed Free CPU or this budget.
+External scheduler/database provisioning has not been performed.
 [GitHub schedule behavior](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule),
 [Render sleep behavior](https://render.com/docs/free).
+
+#### Sleep, restart and retry behavior
+
+If asleep at the scheduled time, Render receives the client's status request and
+starts the web service. Cold-start loading pages, connection failures, and HTTP
+502/503/504 are retried at most six times per API call, with 1/2/4/8/16-second
+backoff and at most 60 seconds per request, within the overall 30-minute budget.
+Redirects are rejected; the Bearer secret is sent only to the configured HTTPS
+origin's trigger endpoint. Authentication failures (401/403) fail immediately.
+
+Once awake, `POST /api/v1/jobs/daily/trigger` requires
+`Authorization: Bearer $SCRAPE_TRIGGER_TOKEN`; an unset secret disables that
+endpoint with 503, and a wrong/missing secret returns 401. The token is read from
+environment variables, compared in constant time, never placed in a URL, and
+never printed. Store it as a Render environment secret and GitHub Actions secret;
+do not commit it, use shell tracing, or echo it in workflow logs. Rotate the value
+in both places together.
+
+While a run is active, repeated triggers return `already_running` or encounter the
+database lock. After a restart, another trigger resumes `running`/`interrupted`
+history; known saved articles skip OCR. Database recovery attempts inside the
+server have a five-minute cooldown, and the external client continues bounded
+polling/re-submission. Completed/partial/failed runs are terminal for that local
+date. Their failed article URLs remain queued for the next day's bounded retries.
+No HTTP 202 response alone proves a completed scrape: inspect persisted status.
+
+If Render is suspended, the database remains unavailable, or the external retry
+budget expires, Actions fails visibly. A batch may still be running when the
+client times out; check status before rerunning the workflow. The stored queue
+survives process loss, and a later daily run can process it. Requests do not wake
+a service suspended for exhausted quotas. Missed URLs that rolled off the source
+listing cannot be recovered by guessing article IDs.
+
+Another trusted external scheduler can run this same standard-library script
+once per day with `SCRAPE_BASE_URL` and `SCRAPE_TRIGGER_TOKEN` supplied privately.
+The base URL must be the HTTPS service origin with no path, query, or credentials.
+Keep the scheduler's local time/timezone aligned with the server's environment
+values, and retain its retries/status monitoring. A single fire-and-forget POST
+does not provide restart recovery. No Render API key is needed by this design.
 
 ### Local schedule and API usage
 
@@ -223,6 +281,8 @@ with a database you created and can access:
 ```sh
 export DATABASE_URL='postgresql://localhost/english_scrapper'
 export SCRAPE_ENABLED=true
+# Optional local convenience only; keep false for external scheduling/Render.
+export SCRAPE_IN_PROCESS=true
 export SCRAPE_TIMEZONE=Asia/Seoul
 export SCRAPE_HOUR=6
 export SCRAPE_MINUTE=0
@@ -231,7 +291,7 @@ export SCRAPE_TRIGGER_TOKEN="$(python3 -c 'import secrets; print(secrets.token_u
 .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Keep this process running for the local timer. Starting after the due time can
+Keep this process running for the opt-in local timer. Starting after the due time can
 immediately discover/process the rolling backlog. Leave `SCRAPE_ENABLED=false`
 to disable scheduling during development. Manual processing still needs
 `DATABASE_URL`. Without it, `/health` and disabled job status work, while manual
@@ -247,13 +307,23 @@ curl --fail 'http://127.0.0.1:8000/api/v1/lessons?limit=20&offset=0'
 curl --fail http://127.0.0.1:8000/api/v1/lessons/LESSON_ID
 ```
 
-`GET /api/v1/jobs/daily` exposes schedule configuration, next scheduled time,
+`GET /api/v1/jobs/daily` exposes schedule configuration, `in_process_enabled`, next scheduled time,
 last-run start/finish/status/counts/error, and up to 20 failed URLs with attempt
 counts and timestamps. No token or database credentials are returned. Triggering
 requires the Bearer token; saved lesson/status reads currently have no per-user
 access controls, appropriate only when these public-article results are intended
 to be readable by service users. The trigger respects enabled/due/daily-lock rules;
 it cannot force a second completed run on the same date.
+
+To test the deployment mode locally, leave `SCRAPE_IN_PROCESS=false` and call the
+authenticated trigger after the due time instead. Run the external client against
+your HTTPS deployed service from a trusted machine as follows (the token must
+already be set privately in the environment):
+
+```sh
+export SCRAPE_BASE_URL='https://YOUR-SERVICE.onrender.com'
+.venv/bin/python scripts/trigger_daily.py
+```
 
 ### Tests for daily processing
 
@@ -272,6 +342,9 @@ schedule/discovery/retry tests still run using test doubles. Local validation fo
 this change used an isolated temporary PostgreSQL 16 cluster plus mocked OCR/HTTP,
 and a separate live series-link discovery check. A production database, GitHub
 workflow, hosted OCR job, and Render deployment remain unconfigured/unverified.
+External-client tests use mocked HTTP and a simulated clock to cover loading
+pages, transient failures, authentication/redirect rejection, total retry budget,
+and restart recovery without sleeping or calling Render.
 
 ## Run locally
 
@@ -753,6 +826,7 @@ tests/
   test_daily.py
   test_daily_postgres.py
   test_saved_api.py
+  test_trigger_daily.py
 ```
 
 ## Available checks

@@ -23,4 +23,6 @@ jobs:
         env:
           SCRAPE_BASE_URL: ${{ vars.SCRAPE_BASE_URL }}
           SCRAPE_TRIGGER_TOKEN: ${{ secrets.SCRAPE_TRIGGER_TOKEN }}
+        # One daily invocation handles cold-start retries and resumes interrupted
+        # jobs through the idempotent trigger. Never enable shell tracing here.
         run: python3 scripts/trigger_daily.py

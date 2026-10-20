@@ -30,6 +30,7 @@ async def daily_status(request: Request):
         except (psycopg.Error, OSError) as exc:
             raise StorageUnavailable() from exc
     return DailyStatusResponse(enabled=config.enabled, timezone=config.timezone,
+        in_process_enabled=config.enabled and config.in_process,
         hour=config.hour, minute=config.minute, storage_configured=bool(config.database_url),
         next_scheduled_at=config.next_due(datetime.now(timezone.utc)) if config.enabled else None,
         latest_run_result=DailyRunResult.model_validate(data["last_run"]) if data["last_run"] else None,
