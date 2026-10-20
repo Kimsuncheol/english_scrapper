@@ -17,11 +17,10 @@ async def health() -> HealthResponse:
     "/api/v1/scrape",
     response_model=ScrapeResponse,
     responses={
-        422: {"model": ErrorResponse, "description": "Invalid request or article URL"},
+        422: {"model": ErrorResponse, "description": "Invalid request, article, or missing lesson image"},
         403: {"model": ErrorResponse, "description": "Publisher blocked access"},
         502: {"model": ErrorResponse, "description": "Publisher fetch failed"},
         504: {"model": ErrorResponse, "description": "Publisher fetch timed out"},
-        501: {"model": ErrorResponse, "description": "Extraction is not implemented yet"},
     },
 )
 async def scrape(request: ScrapeRequest) -> ScrapeResponse:

@@ -2,9 +2,7 @@
 
 import asyncio
 from dataclasses import dataclass
-from html.parser import HTMLParser
 from ipaddress import ip_address
-import json
 import socket
 from urllib.parse import urljoin
 
@@ -12,6 +10,7 @@ import httpx
 
 from app.services.errors import ArticleFetchError
 from app.services.urls import validate_article_url
+from app.services.parsing import article_nodes, metadata_from_page, read_page
 
 MAX_HTML_BYTES = 2 * 1024 * 1024
 MAX_REDIRECTS = 3
@@ -42,70 +41,22 @@ async def resolve_public_ip(host: str) -> str:
     return str(addresses[0])
 
 
-class ArticleHTML(HTMLParser):
-    """Recognize article metadata without assuming lesson-image selectors."""
-
-    def __init__(self):
-        super().__init__()
-        self.title_parts = []
-        self.in_title = False
-        self.in_json = False
-        self.json_parts = []
-        self.is_article = False
-
-    def handle_starttag(self, tag, attrs):
-        attributes = dict(attrs)
-        if tag == "title":
-            self.in_title = True
-        if tag == "meta" and attributes.get("property", "").lower() == "og:type":
-            self.is_article |= attributes.get("content", "").lower() == "article"
-        if tag == "script" and attributes.get("type", "").lower() == "application/ld+json":
-            self.in_json = True
-            self.json_parts = []
-
-    def handle_data(self, data):
-        if self.in_title:
-            self.title_parts.append(data)
-        if self.in_json:
-            self.json_parts.append(data)
-
-    def handle_endtag(self, tag):
-        if tag == "title":
-            self.in_title = False
-        if tag == "script" and self.in_json:
-            self.in_json = False
-            try:
-                self.is_article |= self.contains_article(json.loads("".join(self.json_parts)))
-            except (ValueError, RecursionError):
-                pass
-
-    @classmethod
-    def contains_article(cls, value):
-        if isinstance(value, list):
-            return any(cls.contains_article(item) for item in value)
-        if isinstance(value, dict):
-            types = value.get("@type", [])
-            types = [types] if isinstance(types, str) else types
-            return (isinstance(types, list) and any(
-                item in {"Article", "NewsArticle", "ReportageNewsArticle"}
-                for item in types if isinstance(item, str)
-            )) or cls.contains_article(value.get("@graph", []))
-        return False
-
-
 def validate_article_html(url: str, html: str) -> FetchedArticle:
-    parser = ArticleHTML()
-    try:
-        parser.feed(html)
-    except (ValueError, RecursionError) as exc:
-        raise ArticleFetchError("invalid_article", "The response is not a valid article page.", 422) from exc
-    title = "".join(parser.title_parts).strip()
+    page = read_page(html)
+    metadata = metadata_from_page(page, url)
+    title = metadata.title or ""
     blocked_titles = ("access denied", "just a moment", "captcha", "verify you are human", "접근 차단")
-    if any(marker in title.lower() for marker in blocked_titles) or any(
+    if any(marker in (page.title + " " + title).lower() for marker in blocked_titles) or any(
         marker in html.lower() for marker in ("/cdn-cgi/challenge-platform/", "cf-chl-", "g-recaptcha", "hcaptcha.com/1/api.js")
     ):
         raise ArticleFetchError("blocked_page", "The publisher returned an access-control or challenge page.", 403)
-    if not title or not parser.is_article:
+    data = page.global_content
+    is_article = (
+        page.meta.get("og:type", "").lower() == "article"
+        or any(article_nodes(page.jsonld))
+        or (isinstance(data.get("content_elements"), list) and data.get("type") == "story")
+    )
+    if not title or not is_article:
         raise ArticleFetchError("invalid_article", "The HTML lacks an article title or supported article metadata.", 422)
     return FetchedArticle(url=url, html=html, title=title)
 

@@ -1,0 +1,7 @@
+<html><head><title>Invalid data</title><meta property="og:type" content="article">
+<script type="application/ld+json">{"@type": "NewsArticle", bad json}</script>
+<script>
+// Fusion.globalContent = {"content_elements":[{"type":"image","url":"https://images.example.test/comment.jpg"}]};
+var quoted = 'Fusion.globalContent = {"content_elements":[{"type":"image","url":"https://images.example.test/string.jpg"}]};';
+Fusion.globalContent = (function() { throw new Error("must never execute"); })();
+</script></head><body><img src="https://images.example.test/not-an-article-image.jpg"></body></html>

@@ -16,13 +16,19 @@ def test_health():
     assert response.json() == {"status": "ok"}
 
 
-def test_valid_scrape_is_explicitly_not_implemented(monkeypatch):
-    monkeypatch.setattr(scrape_service, "fetch_article", AsyncMock())
+def test_valid_scrape_returns_parsed_article_without_ocr(monkeypatch):
+    from pathlib import Path
+    from app.services.article import FetchedArticle
+    html = (Path(__file__).parent / "fixtures" / "fusion_lesson.html").read_text()
+    monkeypatch.setattr(scrape_service, "fetch_article", AsyncMock(return_value=FetchedArticle(
+        url="https://www.chosun.com/example/", html=html, title="Lesson"
+    )))
     response = client.post(
         "/api/v1/scrape", json={"article_url": "https://www.chosun.com/example/"}
     )
-    assert response.status_code == 501
-    assert response.json()["error"]["code"] == "not_implemented"
+    assert response.status_code == 200
+    assert response.json()["ocr"] is None
+    assert response.json()["lesson_image"]["is_fallback"] is False
 
 
 @pytest.mark.parametrize(
@@ -78,5 +84,5 @@ def test_route_delegates_to_service_and_serializes_contract(monkeypatch):
 def test_openapi_documents_success_and_error_contracts():
     schema = client.get("/openapi.json").json()
     responses = schema["paths"]["/api/v1/scrape"]["post"]["responses"]
-    for status, model in [("200", "ScrapeResponse"), ("422", "ErrorResponse"), ("501", "ErrorResponse")]:
+    for status, model in [("200", "ScrapeResponse"), ("422", "ErrorResponse"), ("403", "ErrorResponse"), ("502", "ErrorResponse"), ("504", "ErrorResponse")]:
         assert responses[status]["content"]["application/json"]["schema"]["$ref"].endswith(model)

@@ -29,6 +29,8 @@ class ArticleMetadata(BaseModel):
     url: HttpUrl
     title: str | None = None
     published_at: datetime | None = None
+    section: str | None = None
+    language: str | None = None
 
 
 class LessonImageMetadata(BaseModel):
@@ -37,6 +39,10 @@ class LessonImageMetadata(BaseModel):
     content_type: str | None = None
     width: int | None = Field(default=None, gt=0)
     height: int | None = Field(default=None, gt=0)
+    resized_urls: dict[str, HttpUrl] = Field(default_factory=dict)
+    source: Literal["content_elements", "og:image"] = "content_elements"
+    is_fallback: bool = False
+    content_element_path: list[int] | None = None
 
 
 class OCRText(BaseModel):
@@ -48,7 +54,8 @@ class OCRText(BaseModel):
 class ScrapeResponse(BaseModel):
     article: ArticleMetadata
     lesson_image: LessonImageMetadata
-    ocr: OCRText
+    article_images: list[LessonImageMetadata] = Field(default_factory=list)
+    ocr: OCRText | None = None
 
 
 class ValidationIssue(BaseModel):
