@@ -83,7 +83,8 @@ async def scrape_article(article_url: HttpUrl) -> ScrapeResponse:
             ocr = await recognize_image(downloaded.data)
             stage = "lesson_parse"
             lesson = await anyio.to_thread.run_sync(
-                parse_lesson, ocr, downloaded.metadata.width, downloaded.metadata.height
+                lambda: parse_lesson(ocr, downloaded.metadata.width, downloaded.metadata.height,
+                    article_title=parsed.article.title)
             )
     except ArticleFetchError:
         raise

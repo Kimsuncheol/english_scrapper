@@ -74,13 +74,14 @@ class DailyRunner:
                 try:
                     # Retain pending/failed URLs even if discovery fails today.
                     discovery_error = None
+                    urls = []
                     try:
                         urls = await retry(self.discover, self.config, self.sleep)
                         stats["discovered"] = len(urls)
                         stats["skipped"] += await session.enqueue(urls) or 0
                     except ArticleFetchError as exc:
                         discovery_error = exc.code
-                    pending = await session.pending(self.config.max_articles)
+                    pending = await session.pending(self.config.max_articles, preferred_urls=urls)
                     for item in pending:
                         url = item["url"]
                         async def process():

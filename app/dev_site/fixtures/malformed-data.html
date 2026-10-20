@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Malformed data · Fixture article</title><link rel="stylesheet" href="/_dev/test-site/assets/style.css"><meta property="og:type" content="article">
+<script type="application/ld+json">{"@type":"NewsArticle", "headline": bad json}</script>
+<template data-article-data><script>var Fusion = {}; Fusion.globalContent = {"type":"story", "content_elements": [broken data]};</script></template>
+<link rel="icon" type="image/png" href="/_dev/test-site/assets/thumbnail.png"></head><body><!-- FIXTURE_NAV -->
+<main class="layout"><article class="article"><p class="eyebrow">FIXTURE 04 · MALFORMED ARTICLE DATA</p>
+<h1>Broken data, safe failure.</h1><p>Both JSON-LD and Fusion.globalContent contain deliberately invalid JSON. The parser must not evaluate JavaScript to repair them.</p>
+<section class="notice"><h2>Expected result</h2><p>Zero parsed JSON-LD documents, no parsed Fusion content, and <code>no_lesson_image</code>. The document title and synthetic source URL are available as metadata fallbacks.</p></section>
+</article><!-- PARSER_DEBUG --></main></body></html>

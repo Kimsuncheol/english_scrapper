@@ -93,6 +93,17 @@ def test_interrupted_run_can_resume_after_lock_connection_closes():
     asyncio.run(run())
 
 
+def test_latest_discovered_article_precedes_older_persistent_backlog():
+    async def run():
+        store = await make_store()
+        older = ONE.replace("/ONE/", "/OLDER/")
+        async with store.run_session() as session:
+            await session.enqueue([older])
+            await session.enqueue([ONE])
+            assert await session.pending(1, preferred_urls=[ONE, older]) == [{"url": ONE}]
+    asyncio.run(run())
+
+
 def test_job_status_and_saved_lesson_routes_use_persistent_results(monkeypatch):
     async def seed():
         store = await make_store()

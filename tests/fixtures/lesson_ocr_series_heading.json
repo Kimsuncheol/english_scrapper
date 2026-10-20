@@ -1,0 +1,157 @@
+{
+  "provenance": "First five OCR regions observed from the supplied Oct 21 article; remaining context is synthetic. No publisher image or full article text is included.",
+  "article": {
+    "url": "https://www.chosun.com/national/nie/english/2026/10/21/I2PQNZFBDZHH7PTL7LILUZRDHM/",
+    "title": "[스피킹이 강해지는 영어] back to one’s old self",
+    "published_at": "2026-10-20T12:54:18.732000Z",
+    "section": "영어",
+    "language": "ko"
+  },
+  "image": {
+    "width": 650,
+    "height": 1444
+  },
+  "ocr": {
+    "raw_text": "back to one’s old self\n예시 뜻\nAdditional example text for layout testing.",
+    "korean_text": null,
+    "english_text": null,
+    "engine": "tesseract",
+    "status": "ok",
+    "mean_confidence": null,
+    "regions": [
+      {
+        "text": "back",
+        "confidence": 0.95937965,
+        "bounding_box": {
+          "x": 118,
+          "y": 129,
+          "width": 94,
+          "height": 37
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "to",
+        "confidence": 0.96827324,
+        "bounding_box": {
+          "x": 226,
+          "y": 138,
+          "width": 38,
+          "height": 28
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "one’s",
+        "confidence": 0.9629799699999999,
+        "bounding_box": {
+          "x": 281,
+          "y": 130,
+          "width": 95,
+          "height": 36
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "old",
+        "confidence": 0.9606234,
+        "bounding_box": {
+          "x": 392,
+          "y": 129,
+          "width": 63,
+          "height": 37
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "self",
+        "confidence": 0.96612053,
+        "bounding_box": {
+          "x": 469,
+          "y": 129,
+          "width": 69,
+          "height": 37
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "예시 뜻",
+        "confidence": 0.95,
+        "bounding_box": {
+          "x": 230,
+          "y": 190,
+          "width": 180,
+          "height": 22
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "Additional",
+        "confidence": 0.95,
+        "bounding_box": {
+          "x": 30,
+          "y": 400,
+          "width": 85,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "example",
+        "confidence": 0.95,
+        "bounding_box": {
+          "x": 128,
+          "y": 400,
+          "width": 85,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "text",
+        "confidence": 0.95,
+        "bounding_box": {
+          "x": 226,
+          "y": 400,
+          "width": 85,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "for",
+        "confidence": 0.95,
+        "bounding_box": {
+          "x": 324,
+          "y": 400,
+          "width": 85,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "layout",
+        "confidence": 0.95,
+        "bounding_box": {
+          "x": 422,
+          "y": 400,
+          "width": 85,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "testing.",
+        "confidence": 0.95,
+        "bounding_box": {
+          "x": 520,
+          "y": 400,
+          "width": 85,
+          "height": 24
+        },
+        "low_confidence": false
+      }
+    ],
+    "warnings": []
+  }
+}

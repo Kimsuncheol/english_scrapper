@@ -103,8 +103,11 @@ class MemoryStore:
         for url in urls:
             self.items.setdefault(stable_url(url), {"state": "pending", "attempts": 0})
 
-    async def pending(self, limit):
-        return [{"url": url} for url, value in self.items.items() if value["state"] != "succeeded"][:limit]
+    async def pending(self, limit, preferred_urls=()):
+        pending = [url for url, value in self.items.items() if value["state"] != "succeeded"]
+        preferred = list(dict.fromkeys(stable_url(url) for url in preferred_urls))
+        pending.sort(key=lambda url: preferred.index(url) if url in preferred else len(preferred))
+        return [{"url": url} for url in pending[:limit]]
 
     async def remaining(self):
         return sum(value["state"] != "succeeded" for value in self.items.values())
@@ -183,6 +186,19 @@ def test_daily_urls_are_not_processed_again_after_restart():
         await DailyRunner(config(), store, discover, scrape).run_due(tomorrow)
         assert scrape.await_count == 1
         assert len(store.saved) == 1
+    asyncio.run(run())
+
+
+def test_new_daily_lesson_is_not_delayed_by_historical_backlog():
+    async def run():
+        store = MemoryStore()
+        await store.enqueue([TWO])  # Older article queued by an earlier run.
+        scrape = AsyncMock(return_value=result())
+        runner = DailyRunner(config(max_articles=1), store, AsyncMock(return_value=[ONE, TWO]), scrape)
+        assert await runner.run_due(NOW) == "completed"
+        scrape.assert_awaited_once_with(ONE)
+        assert store.items[ONE]["state"] == "succeeded"
+        assert store.items[TWO]["state"] == "pending"
     asyncio.run(run())
 
 

@@ -117,7 +117,10 @@ this does not prove future coverage or that OCR worked on those articles.
 
 The section is a rolling listing, not a historical archive API. Initial enabling
 can discover earlier listed lessons; five are processed per day by default, with
-remaining URLs queued persistently. New/missed articles that have already rolled
+remaining URLs queued persistently. Unprocessed articles in the current publisher
+listing are attempted in listing order before older queued URLs, so a newly listed
+lesson is not held behind a historical backlog. If discovery fails, the stored
+backlog remains available for retry. New/missed articles that have already rolled
 off the listing cannot be recovered automatically. Empty discovery may mean no
 matching entries; monitor the persisted `discovered` count if it stays zero.
 Challenge/error pages are recorded as failures instead of bypassed.
@@ -395,6 +398,58 @@ The placeholder is not a real lesson URL and is not expected to succeed. The
 180-second client timeout leaves room for platform wake-up plus the app's default
 90-second pipeline budget; it does not change the server timeout. Inspect the
 status and Content-Type before decoding JSON after a Render cold start.
+
+## Local fixture test website
+
+The existing FastAPI app includes an opt-in, offline parser playground. It serves
+four synthetic article HTML files and local PNG images from `app/dev_site/`:
+
+| Fixture | Expected parser result |
+| --- | --- |
+| `one-tall-image` | Select the 720 × 1800 lesson graphic |
+| `thumbnail-and-tall` | Select the tall article image rather than the OG thumbnail |
+| `no-lesson-image` | Retain article metadata and show `no_lesson_image` |
+| `malformed-data` | Safely ignore broken JSON-LD/Fusion data and show `no_lesson_image` |
+
+Start it from the repository root using the existing virtual environment:
+
+```sh
+ENABLE_TEST_SITE=true SCRAPE_ENABLED=false SCRAPE_IN_PROCESS=false \
+  .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Open [the local fixture index](http://127.0.0.1:8000/_dev/test-site/) in a browser.
+It visibly links to all four pages:
+
+- [One tall lesson image](http://127.0.0.1:8000/_dev/test-site/articles/one-tall-image)
+- [Thumbnail plus tall lesson image](http://127.0.0.1:8000/_dev/test-site/articles/thumbnail-and-tall)
+- [No lesson image](http://127.0.0.1:8000/_dev/test-site/articles/no-lesson-image)
+- [Malformed article data](http://127.0.0.1:8000/_dev/test-site/articles/malformed-data)
+
+Each page shows the fixture beside output from the **existing pure article
+parser**: title, canonical URL, published date, section, language, image candidates,
+selection, resized URLs and any parsing error. The image-selection result links
+to its local PNG file. The malformed page also shows zero parsed JSON-LD documents
+and no usable Fusion data, while retaining title/source fallbacks.
+
+No Chosun requests, database access, OCR initialization or runtime file generation
+are needed to browse this site. The Chosun-shaped canonical URLs and `example.test`
+image URLs inside metadata are inert synthetic identifiers used by the parser;
+browser image/style requests stay on this local app. Embedded fixture scripts
+are never executed by the parser and the browser CSP blocks scripts/external
+resources. These fixtures are not publisher captures or OCR accuracy benchmarks.
+
+This is a parser/selection playground, not an end-to-end local HTTP scraper:
+`POST /api/v1/scrape` still rejects localhost and private addresses. Network,
+download, OCR and persistence integration remain covered by the existing mocked
+pipeline tests. The test site never weakens production SSRF restrictions.
+
+`ENABLE_TEST_SITE` defaults to **false**. Routes/assets are only registered when
+it is explicitly `true` before app creation; otherwise the entire
+`/_dev/test-site/` tree returns 404. Leave it unset/false on Render and restart the
+process after changing it. No test/debug routes appear in the OpenAPI schema.
+`.env.example` documents this flag but is not auto-loaded. Run focused checks with
+`.venv/bin/python -m pytest tests/test_dev_site.py -q`.
 
 ## Response
 
@@ -719,7 +774,7 @@ to the original `ocr.regions` array. Field confidence is the minimum supporting
 region/heading confidence, not a calibrated classification probability. Inline
 headings may share a region with field content; its original box/index is retained.
 
-The pure `parse_lesson(ocr, image_width, image_height, config)` service:
+The pure `parse_lesson(ocr, image_width, image_height, config, article_title=...)` service:
 
 1. Reconstructs lines using vertical overlap and limited horizontal word gaps.
    Large horizontal gaps remain separate so parallel columns are not interleaved.
@@ -735,6 +790,17 @@ The pure `parse_lesson(ocr, image_width, image_height, config)` service:
    lines stay in that section. Korean meaning/translation and English expression
    cannot be inferred just from being adjacent. Mixed ambiguous sections are not
    split or completed automatically.
+
+For an unlabeled image in the `스피킹이 강해지는 영어` series, there is one narrow
+additional rule: a centered English heading in the top 20% of the image may fill
+`expression` only when its OCR words match the series article title. Its median
+word height must be at least 1.25 times the image's median OCR word height, word
+gaps must be bounded, and all supporting words must meet heading confidence.
+Duplicate matching headings are ambiguous. Typographic apostrophes are equivalent
+for comparison, but the returned text and boxes always come from raw OCR. Missing
+or incorrect OCR words are never filled in from metadata. This rule returns
+`method: series_title_verified_v1` and `status: partial`; other unlabeled fields
+remain null. The size/band thresholds are configurable in `LessonParserConfig`.
 
 Straight/curly apostrophes, punctuation, Korean text, speaker labels, and line
 breaks are retained. The parser does not translate, invent missing fields, repair
@@ -759,11 +825,33 @@ requires no model/service/storage, and adds no dependencies. Unknown unlabeled
 layouts intentionally return `unparsed`; geometric position alone cannot prove
 that a large English title is the target expression.
 
-No lesson screenshots were attached or available in the repository during this
-implementation. The three `lesson_ocr_*.json` fixtures are explicitly **synthetic**
-single-column, two-column, and ambiguous layouts. They verify mechanics, not
-accuracy on an actual publisher screenshot template. Add verified OCR exports
-from the intended screenshots and tune aliases/gaps before claiming that coverage.
+The original single-column, two-column and ambiguous OCR fixtures are synthetic.
+The additional `lesson_ocr_series_heading.json` contains five observed title
+regions from the supplied real article plus synthetic surrounding context. It
+tests the title corroboration rule without storing the full publisher image/text.
+
+### Verified October 21 article
+
+The [supplied October 21, 2026 article](https://www.chosun.com/national/nie/english/2026/10/21/I2PQNZFBDZHH7PTL7LILUZRDHM/)
+was checked with live discovery, safe fetching/downloading and real Korean/English
+Tesseract OCR. The 650 × 1444 original lesson image produced
+`lesson.fields.expression.text: "back to one’s old self"`. The overall result is
+still partial because other unlabeled text has OCR uncertainty and remains raw.
+This is one verified example, not an accuracy claim for all publisher layouts.
+
+The URL's issue date is October 21; the publisher's metadata timestamp is
+`2026-10-20T12:54:18.732Z`. The service preserves that timestamp and does not exclude
+the article from an October 21 run because its publication timestamp is earlier.
+No article ID, date or expression is hardcoded into production selection logic.
+Tests for this case use local/mocked fixtures rather than repeatedly calling
+Chosun. The one live verification does not prove a Render daily run has occurred.
+
+Local verification provisioned the official small `tessdata_fast` Korean/English
+files once under ignored `.ocr-models/` and set
+`TESSDATA_PREFIX="$PWD/.ocr-models"` before starting Python. This is optional local
+setup, not a runtime model downloader. Render continues to use its build-time
+language packages. Actual unattended runs still need the PostgreSQL URL, enabled
+schedule, trigger secret and external scheduler described above.
 
 ## Image selection
 
@@ -1064,8 +1152,8 @@ No image or model is downloaded during service startup or from a health request.
 Application requests download only the submitted article and selected lesson
 image. OCR weights are immutable Docker image contents, not a writable cache.
 Request HTML and image buffers stay in memory and need no persistent filesystem.
-Daily-job OCR/results are stored in PostgreSQL when scheduling is enabled; the
-manual endpoint does not automatically save results. Redeploys/restarts can discard all writable files safely.
+Manual and daily OCR/results are stored in PostgreSQL. Redeploys/restarts can
+discard writable request files safely; PostgreSQL remains the source of saved records.
 
 ### Start command and lightweight health
 

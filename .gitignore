@@ -2,5 +2,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.playwright-mcp/
+.ocr-models/
 .env
 .DS_Store

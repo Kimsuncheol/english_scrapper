@@ -158,8 +158,11 @@ class RunSession:
         row = await (await self.conn.execute("SELECT count(*) AS count FROM daily_articles WHERE state <> 'succeeded'")).fetchone()
         return row["count"]
 
-    async def pending(self, limit):
-        return await (await self.conn.execute("SELECT url FROM daily_articles WHERE state <> 'succeeded' ORDER BY last_attempt_at NULLS FIRST, discovered_at, url LIMIT %s", (limit,))).fetchall()
+    async def pending(self, limit, preferred_urls=()):
+        preferred = list(dict.fromkeys(stable_url(url) for url in preferred_urls))
+        return await (await self.conn.execute("""SELECT url FROM daily_articles WHERE state <> 'succeeded'
+            ORDER BY array_position(%s::text[], url) NULLS LAST,
+                last_attempt_at NULLS FIRST, discovered_at, url LIMIT %s""", (preferred, limit))).fetchall()
 
     async def attempt(self, url):
         # This also checks that the original lock-holding connection is alive

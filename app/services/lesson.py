@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import math
 import re
 from statistics import median
+import unicodedata
 
 from app.schemas import BoundingBox, LessonField, LessonFields, LessonParsingResult, OCRText
 
@@ -35,12 +36,14 @@ class LessonParserConfig:
     column_gap_ratio: float = 0.22
     max_section_gap_heights: float = 3.0
     max_regions: int = 5000
+    title_band_ratio: float = 0.2
+    title_size_ratio: float = 1.25
 
     def __post_init__(self):
-        for value in (self.min_confidence, self.heading_confidence, self.min_vertical_overlap, self.column_gap_ratio):
+        for value in (self.min_confidence, self.heading_confidence, self.min_vertical_overlap, self.column_gap_ratio, self.title_band_ratio):
             if not math.isfinite(value) or not 0 < value <= 1:
                 raise ValueError("Lesson confidence/overlap/column thresholds must be in (0, 1]")
-        if any(not math.isfinite(value) or value <= 0 for value in (self.max_word_gap_heights, self.max_section_gap_heights)) or self.max_regions <= 0:
+        if any(not math.isfinite(value) or value <= 0 for value in (self.max_word_gap_heights, self.max_section_gap_heights, self.title_size_ratio)) or self.max_regions <= 0:
             raise ValueError("Lesson resource and gap limits must be positive")
         allowed = set(LessonFields.model_fields)
         if any(name not in allowed or not labels for name, labels in self.labels):
@@ -122,8 +125,64 @@ def acceptable_language(name: str, texts: list[str]) -> bool:
     return korean + english >= 2
 
 
+def title_verified_expression(ocr, image_width, image_height, article_title, config):
+    """Recognize the series' unlabeled heading only with independent evidence.
+
+    The returned text always comes from OCR. The article title corroborates it;
+    it never fills in missed characters, spelling, or missing OCR words.
+    """
+    if not image_width or not image_height or not isinstance(article_title, str):
+        return None
+    match = re.fullmatch(r"\s*\[스피킹이\s+강해지는\s+영어\]\s*(.{2,200})\s*", article_title)
+    if not match:
+        return None
+
+    def comparable(value):
+        value = unicodedata.normalize("NFKC", value).replace("’", "'").replace("‘", "'")
+        return " ".join(value.split()).casefold()
+
+    expected = comparable(match.group(1))
+    band = [i for i, region in enumerate(ocr.regions)
+        if region.bounding_box.y + region.bounding_box.height <= image_height * config.title_band_ratio]
+    body_height = median(region.bounding_box.height for region in ocr.regions)
+    candidates, seen = [], set()
+    # Evaluate complete aligned rows, including small words that can bridge
+    # separately clustered fragments. Never concatenate different image rows.
+    for seed in sorted(band, key=lambda i: (ocr.regions[i].bounding_box.y, ocr.regions[i].bounding_box.x))[:128]:
+        anchor = ocr.regions[seed].bounding_box
+        row = []
+        for i in band:
+            box = ocr.regions[i].bounding_box
+            overlap = min(anchor.y + anchor.height, box.y + box.height) - max(anchor.y, box.y)
+            if overlap / min(anchor.height, box.height) >= config.min_vertical_overlap:
+                row.append(i)
+        row.sort(key=lambda i: (ocr.regions[i].bounding_box.x, i))
+        key = tuple(row)
+        if not row or key in seen:
+            continue
+        seen.add(key)
+        regions = [ocr.regions[i] for i in row]
+        value = " ".join(region.text for region in regions)
+        if comparable(value) != expected or not acceptable_language("expression", [value]):
+            continue
+        if any(region.low_confidence or region.confidence < config.heading_confidence for region in regions):
+            continue
+        if median(region.bounding_box.height for region in regions) < body_height * config.title_size_ratio:
+            continue
+        box = union_box([region.bounding_box for region in regions])
+        if box.width < image_width * 0.25 or abs(box.x + box.width / 2 - image_width / 2) > image_width * 0.15:
+            continue
+        if any(right.bounding_box.x - (left.bounding_box.x + left.bounding_box.width)
+            > config.max_word_gap_heights * min(left.bounding_box.height, right.bounding_box.height)
+            for left, right in zip(regions, regions[1:])):
+            continue
+        candidates.append(LessonField(text=value, region_indices=row,
+            confidence=min(region.confidence for region in regions), bounding_box=box))
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def parse_lesson(ocr: OCRText, image_width: int | None = None, image_height: int | None = None,
-                 config: LessonParserConfig | None = None) -> LessonParsingResult:
+                 config: LessonParserConfig | None = None, *, article_title: str | None = None) -> LessonParsingResult:
     config = config or LessonParserConfig()
     all_indices = list(range(len(ocr.regions)))
     if not ocr.regions:
@@ -141,6 +200,12 @@ def parse_lesson(ocr: OCRText, image_width: int | None = None, image_height: int
         identify_heading(line, config)
     anchors = [line for line in lines if line.heading]
     if not anchors:
+        expression = title_verified_expression(ocr, image_width, image_height, article_title, config)
+        if expression is not None:
+            return LessonParsingResult(status="partial", fields=LessonFields(expression=expression),
+                reasons=["The high-confidence image heading matches the series article title. Other unlabeled fields remain unassigned; review raw OCR."],
+                unassigned_region_indices=[i for i in all_indices if i not in expression.region_indices],
+                method="series_title_verified_v1")
         return LessonParsingResult(status="unparsed", unassigned_region_indices=all_indices,
             reasons=["No supported section labels were found. Unlabeled titles, meanings, and dialogues are ambiguous."])
 

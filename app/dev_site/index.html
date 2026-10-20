@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson scraper lab · Local fixtures</title>
+<link rel="stylesheet" href="/_dev/test-site/assets/style.css"><link rel="icon" type="image/png" href="/_dev/test-site/assets/thumbnail.png"></head>
+<body><!-- FIXTURE_NAV -->
+<main class="index"><p class="eyebrow">LOCAL PARSER PLAYGROUND</p>
+<h1>Four fixtures.<br>One article parser.</h1>
+<p class="intro">Check metadata extraction and lesson-image selection using small, synthetic article pages. Everything is served from this repository.</p>
+<section class="fixture-grid" aria-label="Article fixtures"><!-- FIXTURE_LINKS --></section>
+<section class="notice"><h2>How to use this lab</h2>
+<p>Open a fixture to compare the visible article with the real parser's metadata and selected image. The two error cases deliberately have no usable lesson image.</p>
+<p>Images, styles and HTML are local files. Chosun-shaped source URLs and example.test image URLs in the extracted data are synthetic identifiers and are never requested. This site does not run OCR, save records or call the manual scrape endpoint. That endpoint continues to reject localhost URLs.</p>
+<p>Enabled explicitly with <code>ENABLE_TEST_SITE=true</code>. Keep it unset or false on deployed services.</p></section>
+</main></body></html>

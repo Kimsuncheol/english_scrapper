@@ -31,3 +31,12 @@ exports before claiming support for a particular publisher template.
 Each fixture contains image dimensions and an OCR response with original region
 order, text, confidence, and bounding boxes. Tests perturb geometry/confidence to
 ensure the parser uses more than text matching and preserves the input exactly.
+
+### Series heading regression
+
+`lesson_ocr_series_heading.json` includes only the five title OCR regions observed
+from the [user-supplied October 21 article](https://www.chosun.com/national/nie/english/2026/10/21/I2PQNZFBDZHH7PTL7LILUZRDHM/),
+plus synthetic context regions. The full publisher image and article text are not
+stored in this fixture. It covers a centered, enlarged, unlabeled expression
+whose recognized words match the series article title. Tests deliberately change
+text, confidence, position and size to ensure metadata cannot invent missing OCR.

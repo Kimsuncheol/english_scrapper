@@ -63,6 +63,62 @@ def test_unknown_unlabeled_layout_is_not_guessed():
     assert "ambiguous" in " ".join(result.reasons)
 
 
+def test_oct21_series_heading_matches_title_with_geometry_and_raw_provenance():
+    fixture = json.loads((FIXTURES / "lesson_ocr_series_heading.json").read_text())
+    ocr = OCRText.model_validate(fixture["ocr"])
+    before = ocr.model_dump(mode="json")
+    result = parse_lesson(ocr, 650, 1444, article_title=fixture["article"]["title"])
+    assert result.status == "partial" and result.method == "series_title_verified_v1"
+    assert result.fields.expression.text == "back to one’s old self"
+    assert result.fields.expression.region_indices == [0, 1, 2, 3, 4]
+    assert result.fields.expression.bounding_box.model_dump() == {"x": 118, "y": 129, "width": 420, "height": 37}
+    assert all(value is None for name, value in result.fields.model_dump().items() if name != "expression")
+    assert result.unassigned_region_indices == list(range(5, len(ocr.regions)))
+    assert ocr.model_dump(mode="json") == before
+    # Typographic apostrophes compare equivalently, but output preserves OCR.
+    title = fixture["article"]["title"].replace("’", "'")
+    assert parse_lesson(ocr, 650, 1444, article_title=title).fields.expression.text == "back to one’s old self"
+
+
+@pytest.mark.parametrize("change", ["no-title", "wrong-series", "mismatch", "low-confidence", "missing-word", "lower-in-image", "too-small", "columns"])
+def test_unlabeled_expression_is_not_filled_from_title_without_image_evidence(change):
+    fixture = json.loads((FIXTURES / "lesson_ocr_series_heading.json").read_text())
+    ocr = OCRText.model_validate(fixture["ocr"])
+    title = fixture["article"]["title"]
+    if change == "no-title":
+        title = None
+    elif change == "wrong-series":
+        title = title.replace("스피킹이 강해지는 영어", "Other series")
+    elif change == "mismatch":
+        title += " again"
+    elif change == "low-confidence":
+        ocr.regions[0].confidence = 0.2
+    elif change == "missing-word":
+        ocr.regions.pop(1)
+    elif change == "lower-in-image":
+        for region in ocr.regions[:5]:
+            region.bounding_box.y += 400
+    elif change == "too-small":
+        for region in ocr.regions[:5]:
+            region.bounding_box.height = 20
+    elif change == "columns":
+        ocr.regions[4].bounding_box.x = 575
+        ocr.regions[4].bounding_box.width = 60
+    result = parse_lesson(ocr, 650, 1444, article_title=title)
+    assert result.fields.expression is None and result.status == "unparsed"
+
+
+def test_repeated_title_verified_rows_are_ambiguous():
+    fixture = json.loads((FIXTURES / "lesson_ocr_series_heading.json").read_text())
+    ocr = OCRText.model_validate(fixture["ocr"])
+    repeated = [region.model_copy(deep=True) for region in ocr.regions[:5]]
+    for region in repeated:
+        region.bounding_box.y += 105
+    ocr.regions.extend(repeated)
+    result = parse_lesson(ocr, 650, 1444, article_title=fixture["article"]["title"])
+    assert result.status == "unparsed" and result.fields.expression is None
+
+
 def test_same_text_moved_away_from_heading_is_not_assigned():
     ocr, image = load("lesson_ocr_single_column.json")
     baseline = parse(ocr, image)

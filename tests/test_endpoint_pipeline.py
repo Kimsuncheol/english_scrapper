@@ -96,6 +96,31 @@ def test_complete_endpoint_returns_explicit_contract(pipeline):
     assert [request.headers["host"] for request in pipeline["requests"]] == ["www.chosun.com", "images.chosun.com"]
 
 
+def test_oct21_article_expression_is_extracted_and_saved(pipeline, persisted_store):
+    fixture = json.loads((FIXTURES / "lesson_ocr_series_heading.json").read_text())
+    metadata = {"@type": "NewsArticle", "headline": fixture["article"]["title"],
+        "url": fixture["article"]["url"], "datePublished": fixture["article"]["published_at"],
+        "inLanguage": "ko", "articleSection": "영어"}
+    content = {"type": "story", "content_elements": [{"type": "image", "url": "https://images.chosun.com/series-lesson.png", "width": 650, "height": 1444}]}
+    html = ('<script type="application/ld+json">' + json.dumps(metadata) +
+        '</script><script>Fusion.globalContent=' + json.dumps(content) + ';</script>').encode()
+    image = BytesIO()
+    Image.new("RGB", (650, 1444), "white").save(image, format="PNG")
+    pipeline["article_handler"] = lambda request: reply(html)
+    pipeline["image_handler"] = lambda request: reply(image.getvalue(), "image/png")
+    pipeline["ocr"].side_effect = lambda data: OCRText.model_validate(fixture["ocr"])
+    response = TestClient(app).post("/api/v1/scrape", json={"article_url": fixture["article"]["url"]})
+    assert response.status_code == 200
+    result = response.json()
+    assert result["lesson"]["fields"]["expression"]["text"] == "back to one’s old self"
+    assert result["lesson"]["method"] == "series_title_verified_v1"
+    assert result["processing"]["status"] == "partial"
+    assert result["article"]["url"] == fixture["article"]["url"]
+    # The URL's issue date is Oct 21; the publisher timestamp is Oct 20 UTC.
+    assert result["article"]["published_at"].startswith("2026-10-20T12:54")
+    assert persisted_store.saved[fixture["article"]["url"]].lesson.fields.expression.text == "back to one’s old self"
+
+
 @pytest.mark.parametrize("url", ["http://www.chosun.com/lesson/", "https://localhost/", "https://127.0.0.1/", "https://evil.com/", "bad-url"])
 def test_url_rejected_before_any_http(pipeline, url):
     response = TestClient(app).post("/api/v1/scrape", json={"article_url": url})
