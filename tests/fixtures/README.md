@@ -32,6 +32,41 @@ Each fixture contains image dimensions and an OCR response with original region
 order, text, confidence, and bounding boxes. Tests perturb geometry/confidence to
 ensure the parser uses more than text matching and preserves the input exactly.
 
+### Wholly original six-section lesson
+
+`lesson_ocr_original_six_sections.json` uses short original sample text about
+making room for a chair. It was authored as mock OCR data: no article, publisher
+image, attached screenshot, OCR export, network request or OCR model was used.
+It is independent of the separately documented real-heading regression below.
+
+The tall 720 × 1440 synthetic canvas contains these six sections, with Korean
+section labels and English/Korean content:
+
+| Field | Original sample |
+| --- | --- |
+| English expression | `Let's make room.` |
+| Korean meaning | `자리를 마련하자.` |
+| Korean explanation | `함께 쓸 공간을 만들자고 제안하는 말입니다.` |
+| English dialogue | A/B turns about moving a bag and a blue box, including an indented continuation line |
+| Korean translation | Matching A/B turns and an indented continuation line |
+| Vocabulary | `make room`, `chair`, `blue box` with Korean glosses |
+
+All 42 mock regions have confidence and pixel bounding boxes measured from the
+top-left of that canvas (`x` increases rightward, `y` downward). The region array
+is intentionally shuffled. `expected.reading_order` lists its indices in geometric
+reading order; `expected.lines` records line text and constituent region indices.
+`expected.fields` specifies exact six-field text and supporting region indices.
+There is no source credit to infer, so its expected value is explicitly null.
+
+Straight/curly apostrophes, Korean characters, punctuation, speaker labels and
+multi-line text are preserved. `tests/test_synthetic_lesson.py` checks this contract,
+reorders regions, degrades confidence, and removes supporting boxes. Its guards
+fail if a test attempts OCR initialization or HTTP access. Run it directly with:
+
+```sh
+.venv/bin/python -m pytest tests/test_synthetic_lesson.py -q
+```
+
 ### Series heading regression
 
 `lesson_ocr_series_heading.json` includes only the five title OCR regions observed

@@ -826,6 +826,12 @@ layouts intentionally return `unparsed`; geometric position alone cannot prove
 that a large English title is the target expression.
 
 The original single-column, two-column and ambiguous OCR fixtures are synthetic.
+`lesson_ocr_original_six_sections.json` adds a wholly original six-section lesson
+with shuffled mock OCR regions, pixel boxes, explicit expected reading order,
+line grouping and field assignments. Run
+`.venv/bin/python -m pytest tests/test_synthetic_lesson.py -q` to check it without
+initializing OCR or making HTTP requests; see `tests/fixtures/README.md` for its
+format and provenance.
 The additional `lesson_ocr_series_heading.json` contains five observed title
 regions from the supplied real article plus synthetic surrounding context. It
 tests the title corroboration rule without storing the full publisher image/text.
