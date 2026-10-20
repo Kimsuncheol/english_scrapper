@@ -21,3 +21,13 @@ services:
         value: "4000000"
       - key: OCR_TIMEOUT_MS
         value: "30000"
+      - key: SCRAPE_ENABLED
+        value: "false"
+      - key: SCRAPE_TIMEZONE
+        value: Asia/Seoul
+      - key: SCRAPE_HOUR
+        value: "6"
+      - key: SCRAPE_MINUTE
+        value: "0"
+# DATABASE_URL and SCRAPE_TRIGGER_TOKEN are deployment secrets configured in
+# the dashboard before enabling scheduling. No expiring Free DB is provisioned.

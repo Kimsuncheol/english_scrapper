@@ -1,0 +1,26 @@
+name: Daily Chosun lesson scrape
+on:
+  schedule:
+    # Match the server's default 06:00 Asia/Seoul; align if env changes.
+    - cron: "0 6 * * *"
+      timezone: Asia/Seoul
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: daily-chosun-scrape
+  cancel-in-progress: false
+jobs:
+  wake-and-scrape:
+    if: ${{ vars.SCRAPE_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Wake service and wait for persisted results
+        env:
+          SCRAPE_BASE_URL: ${{ vars.SCRAPE_BASE_URL }}
+          SCRAPE_TRIGGER_TOKEN: ${{ secrets.SCRAPE_TRIGGER_TOKEN }}
+        run: python3 scripts/trigger_daily.py

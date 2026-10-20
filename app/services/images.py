@@ -142,7 +142,7 @@ async def _download(url: HttpUrl, config: ImageDownloadConfig, transport) -> tup
                 if response.status_code in {401, 403, 429}:
                     raise ImageDownloadError("image_blocked", "The publisher denied or rate-limited image access.", 403)
                 if response.status_code != 200:
-                    raise ImageDownloadError("image_http_error", f"Image host returned HTTP {response.status_code}.")
+                    raise ImageDownloadError("image_http_error", f"Image host returned HTTP {response.status_code}.", upstream_status=response.status_code)
                 content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
                 if content_type not in IMAGE_FORMATS:
                     raise ImageDownloadError("invalid_image_content_type", "Image response must be JPEG, PNG, WebP, or GIF.", 422)

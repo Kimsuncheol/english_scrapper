@@ -33,7 +33,7 @@ def decode_json(text: str):
         return None
 
 
-def fusion_content(script: str) -> dict:
+def fusion_content(script: str, variable: str = "globalContent") -> dict:
     """Read a JSON object assignment (or JSON.parse of a JSON string) only.
 
     A small lexical scan skips strings/comments, including braces within them.
@@ -41,13 +41,16 @@ def fusion_content(script: str) -> dict:
     Unsupported JavaScript object literals are deliberately not interpreted.
     """
     decoder = json.JSONDecoder()
+    if variable not in {"globalContent", "contentCache"}:
+        raise ValueError("Unsupported Fusion data variable")
+    assignment = ASSIGNMENT if variable == "globalContent" else re.compile(r"(?:window\s*\.\s*)?Fusion\s*\.\s*contentCache\s*=\s*(?!=)")
     position = 0
     while position < len(script):
         skipped = STRING_OR_COMMENT.match(script, position)
         if skipped:
             position = skipped.end()
             continue
-        match = ASSIGNMENT.match(script, position)
+        match = assignment.match(script, position)
         if match and (position == 0 or not (script[position - 1].isalnum() or script[position - 1] in "_$.")):
             start = match.end()
             wrapped = JSON_PARSE.match(script, start)
@@ -82,6 +85,7 @@ class PageHTML(HTMLParser):
         self.script_parts = []
         self.jsonld = []
         self.global_content = {}
+        self.content_cache = {}
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -117,6 +121,8 @@ class PageHTML(HTMLParser):
             elif self.script_type in {"text/javascript", "application/javascript", "module"}:
                 if not self.global_content:
                     self.global_content = fusion_content(script)
+                if not self.content_cache:
+                    self.content_cache = fusion_content(script, "contentCache")
             self.script_type = None
             self.script_parts = []
 

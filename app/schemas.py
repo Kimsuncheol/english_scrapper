@@ -1,6 +1,6 @@
 """Public request, success, and error contracts."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
@@ -130,3 +130,54 @@ class ErrorDetail(BaseModel):
 
 class ErrorResponse(BaseModel):
     error: ErrorDetail
+
+
+class DailyRunRecord(BaseModel):
+    id: str
+    scheduled_date: date
+    status: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    attempts: int
+    stats: dict[str, int]
+    error_code: str | None = None
+
+
+class DailyFailure(BaseModel):
+    url: str
+    attempts: int
+    error_code: str | None
+    last_attempt_at: datetime | None
+
+
+class DailyStatusResponse(BaseModel):
+    enabled: bool
+    timezone: str
+    hour: int
+    minute: int
+    storage_configured: bool
+    next_scheduled_at: datetime
+    last_run: DailyRunRecord | None = None
+    failures: list[DailyFailure] = Field(default_factory=list)
+    local_error_code: str | None = None
+
+
+class DailyTriggerResponse(BaseModel):
+    status: str
+
+
+class SavedLessonSummary(BaseModel):
+    id: str
+    canonical_url: str
+    article: ArticleMetadata
+    processing_status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class SavedLessonResponse(BaseModel):
+    id: str
+    canonical_url: str
+    payload: ScrapeResponse
+    created_at: datetime
+    updated_at: datetime

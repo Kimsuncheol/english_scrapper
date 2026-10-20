@@ -11,6 +11,8 @@ URLs under `example.test` are inert test data. Tests perform no network access.
 - `malformed_fusion.html`: invalid JSON, comments, quoted assignments, and an
   executable expression that must never be interpreted.
 - `no_image.html`: text-only article, invalid date, unrelated promo image.
+- `daily_discovery.html`: synthetic English-section anchors and Fusion content
+  cache stories, including duplicate URLs, another series, and rejected hosts.
 
 ## Lesson OCR fixtures
 

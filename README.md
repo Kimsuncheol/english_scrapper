@@ -5,11 +5,221 @@ metadata and lesson-image URLs, then downloads and validates the selected image
 in memory. Tesseract recognizes Korean and English text and returns word regions
 with confidence and pixel bounding boxes. A conservative layout parser organizes
 supported labeled sections into lesson fields. No request files are written at runtime.
+Manual scraping remains stateless; an optional daily workflow persists results in
+external PostgreSQL and exposes saved lessons through the API.
 
 The lesson graphic is a raster image: this service locates and downloads it,
 then recognizes its pixels with OCR. It does **not** extract the graphic as
 native/selectable text from the article HTML. Page metadata comes from HTML/page
 data, while lesson text is an OCR estimate that can contain errors.
+
+## Optional daily scrape workflow
+
+Repository inspection found **no existing database or persistent storage**. The
+manual endpoint still requires neither. Daily scraping adds PostgreSQL persistence;
+there is deliberately **no SQLite/local-file fallback** on Render Free. Models
+remain Docker image contents; request images are never saved to disk.
+
+### Configuration
+
+Set these environment variables before starting FastAPI (see `.env.example`,
+which is documentation only; the app does not automatically load dotenv files):
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SCRAPE_ENABLED` | `false` | Enable the application timer/daily runner |
+| `SCRAPE_TIMEZONE` | `Asia/Seoul` | IANA schedule timezone |
+| `SCRAPE_HOUR` | `6` | Local hour, 0–23 |
+| `SCRAPE_MINUTE` | `0` | Local minute, 0–59 |
+| `DATABASE_URL` | unset | Persistent PostgreSQL URL; required when enabled |
+| `SCRAPE_TRIGGER_TOKEN` | unset | Secret Bearer token for external triggers |
+| `SCRAPE_DAILY_MAX_ARTICLES` | `5` | Maximum queued articles attempted in one daily batch, supported range 1–20 |
+| `SCRAPE_RETRY_ATTEMPTS` | `3` | Total attempts per transient operation, supported range 1–5 |
+| `SCRAPE_RETRY_BASE_SECONDS` | `2` | Exponential backoff base; delays cap at 20 seconds plus up to 10% jitter |
+| `SCRAPE_REQUEST_GAP_SECONDS` | `2` | Pause between article processing attempts/batches |
+
+Only PostgreSQL URLs are accepted. Remote connections default to TLS if no
+`sslmode` was supplied; use your provider's recommended certificate validation
+(e.g. `sslmode=verify-full`) where available. Supply a **direct connection or
+session-pooling endpoint**, never a transaction-pooling/PgBouncer transaction URL:
+the session-level advisory lock must stay on the same backend connection for the
+entire run. Use a dedicated database/schema and a role that can create the three
+application tables on initial use. Secrets belong in deployment settings, not Git.
+
+No database is created or purchased by `render.yaml`. Choose a durable external
+PostgreSQL service and its retention/backup plan explicitly. Render's Free
+Postgres expires after 30 days, so it is not a long-term archive by itself.
+[Render Free database limitations](https://render.com/docs/free).
+
+### Discovery and retained results
+
+The fixed discovery source is the publisher's
+[English-section page](https://www.chosun.com/national/nie/english/). It is fetched
+once per daily run (with bounded retries) using the same HTTPS, public-IP pinning,
+redirect, timeout and 2 MiB controls as article fetching. Links come from actual
+HTML anchors or safely parsed Fusion `contentCache`/`globalContent` story objects.
+Only titles beginning with `스피킹이 강해지는 영어` and approved article URLs under
+`/national/nie/english/` are accepted. IDs/dates are never guessed and JavaScript is
+never executed. A local live discovery check found 20 matching listed links;
+this does not prove future coverage or that OCR worked on those articles.
+
+The section is a rolling listing, not a historical archive API. Initial enabling
+can discover earlier listed lessons; five are processed per day by default, with
+remaining URLs queued persistently. New/missed articles that have already rolled
+off the listing cannot be recovered automatically. Empty discovery may mean no
+matching entries; monitor the persisted `discovered` count if it stays zero.
+Challenge/error pages are recorded as failures instead of bypassed.
+
+The job creates idempotent tables on first database use:
+
+- `daily_runs`: one local scheduled-date key, start/finish timestamps, attempts,
+  status, counts and concise error code.
+- `daily_articles`: normalized article URL, pending/processing/failed/succeeded
+  state, attempts, last-attempt timestamp, error code and saved-lesson ID.
+- `saved_lessons`: stable ID, unique canonical URL, complete `ScrapeResponse` JSON,
+  and creation/update timestamps. This includes article metadata, original/final
+  image URLs and dimensions, raw OCR text/regions, structured fields and processing
+  status; it excludes HTML and image bytes.
+
+Tracking URLs remove query/fragment tracking and unify `chosun.com` with
+`www.chosun.com`. Successful URLs are not processed again on the next day or after
+restarts. Canonical-result uniqueness prevents duplicate saved lessons. Partial or
+empty OCR responses are saved with their reviewable status rather than invented
+text. Manual `POST /api/v1/scrape` remains available and stateless; daily persistence
+does not change its response schema.
+
+### Locking, failures and catch-up
+
+Every runner must acquire a **PostgreSQL session advisory lock** before discovery
+or processing; a unique scheduled-date row adds durable daily idempotency. This
+protects against overlapping deploys, external triggers, and multiple FastAPI
+instances. The lock uses a dedicated live connection and is released when the
+connection closes, including process exit. All instances should use the same
+schedule configuration/database. Keep Render Free at one worker/instance; the
+cross-instance database guard is not a reason to increase OCR memory use.
+[PostgreSQL advisory locks](https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-ADVISORY-LOCKS).
+
+Transient connection/read failures, upstream 5xx responses, and temporary busy
+responses get bounded exponential retries. Upstream 404, invalid inputs, image
+validation errors, and OCR installation failures are not retried immediately.
+Publisher block/rate-limit responses stop the current batch without immediate
+retries. Failed URLs remain queued and can be reconsidered by a later daily run;
+existing failed/pending URLs are still processed when that day's discovery fails.
+Attempts and errors are committed before/after processing so progress survives
+restarts. A terminal daily run is not repeated on the same local date; a crashed
+`running`/`interrupted` run can resume under a newly acquired lock.
+
+Like other crash-recoverable jobs, this is at-least-once work with idempotent
+saved results: a crash between OCR and the database commit can repeat a download
+or OCR, but cannot create another canonical saved lesson. A database connection
+loss aborts further work on that session. No local filesystem lock is used.
+
+The in-process asyncio timer checks every 30 seconds **while the service is
+awake**, launching at/after the configured local time once per date. On a late
+wake-up after today's scheduled time, it catches up today's run rather than
+creating a historical run for every missed date. UTC timestamps are stored; local
+dates define the daily key. Scheduling does not block `/health` or initialize OCR
+until a lesson actually reaches that stage. Database outage/reconnect attempts
+are throttled locally; `/health` remains liveness, not database readiness.
+
+### Render Free and external wake-up setup
+
+Render Free sleeps after inactivity, so **an in-process timer alone cannot run
+reliably at a daily wall-clock time**. The included GitHub Actions workflow supplies
+an external wake-up at the default `06:00 Asia/Seoul`, calls the authenticated
+trigger, and polls status every 30 seconds only while waiting for that batch. It
+does not send continuous keep-alive pings between daily jobs. No paid Render Cron
+Job/background-worker service is silently added.
+
+1. Provision/select durable PostgreSQL. In Render Environment set `DATABASE_URL`
+   to a direct/session connection URL, and set a strong `SCRAPE_TRIGGER_TOKEN`
+   (for example generate one locally with `python -c 'import secrets; print(secrets.token_urlsafe(32))'`).
+2. Set Render `SCRAPE_ENABLED=true` and review timezone/hour/minute. The Blueprint
+   deliberately defaults it to false. Restart/redeploy so the frozen schedule
+   config is reloaded. Keep the existing one-worker command and resource limits.
+3. In GitHub repository **Settings → Secrets and variables → Actions**, add
+   repository variables `SCRAPE_ENABLED=true` and `SCRAPE_BASE_URL` (the HTTPS
+   Render service origin), and a repository secret `SCRAPE_TRIGGER_TOKEN` with
+   the same token. The workflow receives no database password.
+4. Enable **Daily Chosun lesson scrape** under Actions. The workflow must be on the
+   default branch for scheduled execution. It uses `cron: "0 6 * * *"` with
+   `timezone: Asia/Seoul`; GitHub schedule expressions cannot read application
+   environment variables. **If changing SCRAPE_TIMEZONE/HOUR/MINUTE, also align
+   those two workflow schedule fields**, or configure another trusted external
+   scheduler to call the trigger at/after the new due time.
+5. Use **Run workflow** for an initial check after the due time. Inspect
+   `/api/v1/jobs/daily` and `/api/v1/lessons` for persisted results. Before the
+   due time the application returns `not_due`; the external script flags a
+   mismatched/early wake-up instead of silently pretending a scrape occurred.
+
+GitHub scheduling is best-effort: it can be delayed, and public-repository
+schedules can be disabled after 60 days without activity. Review Actions status
+and usage/billing for your repository plan. The workflow has a 35-minute ceiling;
+the client waits up to 30 minutes after wake-up, and reports partial/failed jobs
+as workflow failures. Raising the five-article default can exceed Free CPU or this
+polling budget. There is no claim that a job will run at the exact second or that
+external scheduler/database provisioning has been performed.
+[GitHub schedule behavior](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule),
+[Render sleep behavior](https://render.com/docs/free).
+
+### Local schedule and API usage
+
+Create a **local development PostgreSQL database** or use a separate hosted dev
+DB, install `requirements.txt`, then export environment variables in the terminal
+that starts Uvicorn. This example uses a local development connection; replace it
+with a database you created and can access:
+
+```sh
+export DATABASE_URL='postgresql://localhost/english_scrapper'
+export SCRAPE_ENABLED=true
+export SCRAPE_TIMEZONE=Asia/Seoul
+export SCRAPE_HOUR=6
+export SCRAPE_MINUTE=0
+# Set this privately if testing the trigger; do not commit the value.
+export SCRAPE_TRIGGER_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Keep this process running for the local timer. Starting after the due time can
+immediately discover/process the rolling backlog. Leave `SCRAPE_ENABLED=false`
+for unit tests/manual-only development. Health and manual scraping still work
+without `DATABASE_URL`; saved-result routes return `503 storage_unavailable`.
+The schema is initialized automatically on first daily/status/result database use.
+
+```sh
+curl --fail http://127.0.0.1:8000/api/v1/jobs/daily
+curl --include --request POST http://127.0.0.1:8000/api/v1/jobs/daily/trigger \
+  --header "Authorization: Bearer $SCRAPE_TRIGGER_TOKEN"
+curl --fail 'http://127.0.0.1:8000/api/v1/lessons?limit=20&offset=0'
+# Replace LESSON_ID with an ID from the list response.
+curl --fail http://127.0.0.1:8000/api/v1/lessons/LESSON_ID
+```
+
+`GET /api/v1/jobs/daily` exposes schedule configuration, next scheduled time,
+last-run start/finish/status/counts/error, and up to 20 failed URLs with attempt
+counts and timestamps. No token or database credentials are returned. Triggering
+requires the Bearer token; saved lesson/status reads currently have no per-user
+access controls, appropriate only when these public-article results are intended
+to be readable by service users. The trigger respects enabled/due/daily-lock rules;
+it cannot force a second completed run on the same date.
+
+### Tests for daily processing
+
+```sh
+.venv/bin/python -m pytest -q
+# Optional: use an isolated test database, NEVER production.
+TEST_DATABASE_URL='postgresql://localhost/english_scrapper_test' \
+  .venv/bin/python -m pytest tests/test_daily_postgres.py -q
+```
+
+PostgreSQL integration tests create fresh schemas and do not drop/truncate existing
+data. They check the actual session lock, cross-connection exclusion, duplicate
+URLs, interrupted-run recovery, saved JSON surviving a new repository instance,
+and result/status APIs. Without `TEST_DATABASE_URL` those integration tests skip;
+schedule/discovery/retry tests still run using test doubles. Local validation for
+this change used an isolated temporary PostgreSQL 16 cluster plus mocked OCR/HTTP,
+and a separate live series-link discovery check. A production database, GitHub
+workflow, hosted OCR job, and Render deployment remain unconfigured/unverified.
 
 ## Run locally
 
@@ -469,8 +679,14 @@ app/
     images.py          # In-memory download, format and pixel validation
     ocr.py             # Replaceable engine interface and process-wide OCR service
     lesson.py          # Conservative layout-aware lesson post-processing
+    daily.py           # Daily runner, retries and in-process timer
+    discovery.py       # Publisher-listed English-series links
+    storage.py         # PostgreSQL history, queue, results and advisory lock
     urls.py            # HTTPS article-host policy
     errors.py          # Shared application errors
+.github/workflows/daily-scrape.yml  # External daily wake-up for sleeping Free service
+render.yaml                        # Free Docker service, scheduler disabled by default
+scripts/trigger_daily.py           # Authenticated trigger and bounded status polling
 tests/
   fixtures/            # Synthetic representative HTML samples
   test_api.py
@@ -479,6 +695,8 @@ tests/
   test_images.py
   test_ocr.py
   test_lesson.py
+  test_daily.py
+  test_daily_postgres.py
 ```
 
 ## Available checks
@@ -684,7 +902,9 @@ Deploy this repository as a **Docker Web Service**, not Render's native Python
 runtime. The existing OCR binding needs system libraries and language files that
 `pip install` alone cannot supply. `render.yaml` describes this same Docker
 approach with `plan: free`, `/health`, and conservative environment settings. It
-creates one web service with no disk, database, background worker, or GPU.
+creates one web service with no disk, provisioned database, separate worker, or
+GPU. The optional daily scheduler requires an external persistent PostgreSQL URL;
+it is disabled in the Blueprint until configured.
 
 ### Python, dependencies and system packages
 
@@ -713,8 +933,9 @@ The multi-stage `Dockerfile`:
 No image or model is downloaded during service startup or from a health request.
 Application requests download only the submitted article and selected lesson
 image. OCR weights are immutable Docker image contents, not a writable cache.
-Request HTML, image buffers, and OCR results stay in memory and need no persistent
-filesystem. Redeploys/restarts can discard all writable files safely.
+Request HTML and image buffers stay in memory and need no persistent filesystem.
+Daily-job OCR/results are stored in PostgreSQL when scheduling is enabled; the
+manual endpoint does not automatically save results. Redeploys/restarts can discard all writable files safely.
 
 ### Start command and lightweight health
 
@@ -750,8 +971,8 @@ while health stays responsive.
 4. Review the proposed `english-scrapper` service: runtime **Docker**, plan
    **Free**, Dockerfile `./Dockerfile`, context `.`, health path `/health`.
    Do not change to a paid instance or add a disk to make the example work.
-5. Confirm the environment values below and deploy the Blueprint. There are no
-   required secrets or paid integrations.
+5. Confirm the environment values below and deploy the Blueprint. Manual scraping needs no secrets or paid integrations.
+   For daily scraping, also complete the storage/wake-up setup below.
 6. Follow the build/deploy logs. Once live, open the assigned `onrender.com` URL
    with `/health`; it should return `{"status":"ok"}`. Open `/docs` and submit a
    real approved Chosun article URL to verify the OCR pipeline separately.
@@ -784,7 +1005,8 @@ Use this route **instead of** creating a Blueprint service to avoid duplicates.
 
 The Blueprint sets the following explicitly. The same defaults are already in
 the Docker image/application, so **no manually supplied secret or API key is
-required** for either setup path.
+required** for the manual API. Enabling the daily workflow additionally requires
+`DATABASE_URL` and `SCRAPE_TRIGGER_TOKEN` as described below.
 
 | Variable | Value | Supplied by |
 | --- | --- | --- |

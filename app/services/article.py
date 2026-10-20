@@ -89,7 +89,7 @@ def validate_article_html(url: str, html: str) -> FetchedArticle:
     return FetchedArticle(url=url, html=html, title=title)
 
 
-async def _fetch_article(article_url: str, transport: httpx.AsyncBaseTransport | None, config: ArticleFetchConfig) -> FetchedArticle:
+async def _fetch_article(article_url: str, transport: httpx.AsyncBaseTransport | None, config: ArticleFetchConfig, listing: bool = False) -> FetchedArticle:
     current = article_url
     # No environment proxies, cookies from other requests, automatic redirects,
     # or connection reuse across hosts sharing a CDN IP.
@@ -120,7 +120,7 @@ async def _fetch_article(article_url: str, transport: httpx.AsyncBaseTransport |
                 if response.status_code in {401, 403, 429}:
                     raise ArticleFetchError("blocked_page", "The publisher denied or rate-limited article access.", 403)
                 if response.status_code != 200:
-                    raise ArticleFetchError("upstream_http_error", f"The publisher returned HTTP {response.status_code}.")
+                    raise ArticleFetchError("upstream_http_error", f"The publisher returned HTTP {response.status_code}.", upstream_status=response.status_code)
                 if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() not in {"text/html", "application/xhtml+xml"}:
                     raise ArticleFetchError("invalid_article", "The publisher did not return HTML.", 422)
                 if response.headers.get("content-encoding", "identity").lower() != "identity":
@@ -144,15 +144,17 @@ async def _fetch_article(article_url: str, transport: httpx.AsyncBaseTransport |
                     html = body.decode(response.encoding or "utf-8", errors="replace")
                 except LookupError as exc:
                     raise ArticleFetchError("invalid_article", "The publisher returned an unsupported character encoding.", 422) from exc
+                if listing:
+                    return FetchedArticle(url=str(logical_url), html=html, title="")
                 return validate_article_html(str(logical_url), html)
 
 
-async def fetch_article(article_url: str, *, transport: httpx.AsyncBaseTransport | None = None, config: ArticleFetchConfig | None = None) -> FetchedArticle:
+async def fetch_article(article_url: str, *, transport: httpx.AsyncBaseTransport | None = None, config: ArticleFetchConfig | None = None, listing: bool = False) -> FetchedArticle:
     """Fetch a validated article; transport injection is only for offline tests."""
     config = config or ArticleFetchConfig.from_env()
     try:
         async with asyncio.timeout(config.total_timeout):
-            return await _fetch_article(article_url, transport, config)
+            return await _fetch_article(article_url, transport, config, listing)
     except (TimeoutError, httpx.TimeoutException) as exc:
         raise ArticleFetchError("article_timeout", "Timed out fetching the article.", 504) from exc
     except (httpx.RequestError, OSError) as exc:
