@@ -1,14 +1,26 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lesson scraper lab · Local fixtures</title>
-<link rel="stylesheet" href="/_dev/test-site/assets/style.css"><link rel="icon" type="image/png" href="/_dev/test-site/assets/thumbnail.png"></head>
+<link rel="stylesheet" href="/_dev/test-site/assets/style.css"><link rel="icon" type="image/png" href="/_dev/test-site/assets/thumbnail.png"><script src="/_dev/test-site/assets/scrape.js" defer></script></head>
 <body><!-- FIXTURE_NAV -->
 <main class="index"><p class="eyebrow">LOCAL PARSER PLAYGROUND</p>
+<section class="scrape-panel" aria-labelledby="scrape-heading">
+<h2 id="scrape-heading">Scrape a Chosun article</h2>
+<p>Paste an HTTPS Chosun article URL to fetch its lesson image, run real OCR, and save the result. This makes external requests; fixture browsing below stays offline.</p>
+<form id="scrape-form">
+<label for="article-url">Article URL</label>
+<div class="scrape-controls"><input id="article-url" name="article_url" type="url" placeholder="https://www.chosun.com/national/nie/english/…" required><button id="scrape-submit" type="submit">Scrape article</button></div>
+</form>
+<p class="muted">Requires DATABASE_URL and installed Korean/English OCR models on the server. Local fixture URLs are rejected by the API.</p>
+<p id="scrape-status" role="status" aria-live="polite"></p>
+<pre id="scrape-result" aria-label="Scrape API response" hidden></pre>
+<noscript>Enable JavaScript to submit an article URL.</noscript>
+</section>
 <h1>Four fixtures.<br>One article parser.</h1>
 <p class="intro">Check metadata extraction and lesson-image selection using small, synthetic article pages. Everything is served from this repository.</p>
 <section class="fixture-grid" aria-label="Article fixtures"><!-- FIXTURE_LINKS --></section>
 <section class="notice"><h2>How to use this lab</h2>
 <p>Open a fixture to compare the visible article with the real parser's metadata and selected image. The two error cases deliberately have no usable lesson image.</p>
-<p>Images, styles and HTML are local files. Chosun-shaped source URLs and example.test image URLs in the extracted data are synthetic identifiers and are never requested. This site does not run OCR, save records or call the manual scrape endpoint. That endpoint continues to reject localhost URLs.</p>
+<p>Fixture images, styles and HTML are local files. Chosun-shaped source URLs and example.test image URLs in fixture data are synthetic identifiers and are never requested. Fixture pages do not run OCR or save records. The URL form above explicitly calls the manual scrape endpoint, which continues to reject localhost URLs.</p>
 <p>Enabled explicitly with <code>ENABLE_TEST_SITE=true</code>. Keep it unset or false on deployed services.</p></section>
 </main></body></html>

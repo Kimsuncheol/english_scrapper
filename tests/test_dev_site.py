@@ -70,7 +70,7 @@ def test_development_routes_do_not_exist_by_default(monkeypatch, enabled):
     else:
         monkeypatch.setenv("ENABLE_TEST_SITE", enabled)
     client = TestClient(create_app())
-    for path in [PREFIX + "/", PREFIX + "/articles/one-tall-image", PREFIX + "/assets/lesson.png"]:
+    for path in [PREFIX + "/", PREFIX + "/articles/one-tall-image", PREFIX + "/assets/lesson.png", PREFIX + "/assets/scrape.js"]:
         assert client.get(path).status_code == 404
     assert not any(getattr(route, "path", "").startswith(PREFIX) for route in client.app.routes)
 
@@ -90,6 +90,19 @@ def test_index_links_to_every_fixture_and_hides_debug_routes_from_schema(local_s
         assert f"{PREFIX}/articles/{slug}" in page.links
     assert all(link.startswith(PREFIX) for link in page.links)
     assert not any(path.startswith(PREFIX) for path in local_site.get("/openapi.json").json()["paths"])
+
+
+def test_url_form_and_script_are_available_only_on_opt_in_site(local_site):
+    response = local_site.get(PREFIX + "/")
+    assert 'id="scrape-form"' in response.text
+    assert 'name="article_url" type="url"' in response.text
+    assert 'id="scrape-result"' in response.text
+    script = local_site.get(PREFIX + "/assets/scrape.js")
+    assert script.status_code == 200
+    assert 'fetch("/api/v1/scrape"' in script.text
+    assert "innerHTML" not in script.text
+    policy = response.headers["content-security-policy"]
+    assert "script-src 'self'" in policy and "connect-src 'self'" in policy
 
 
 @pytest.mark.parametrize("slug,index", [("one-tall-image", 0), ("thumbnail-and-tall", 1)])

@@ -430,6 +430,17 @@ ENABLE_TEST_SITE=true SCRAPE_ENABLED=false SCRAPE_IN_PROCESS=false \
 ```
 
 Open [the local fixture index](http://127.0.0.1:8000/_dev/test-site/) in a browser.
+The **Scrape a Chosun article** form at the top accepts a live HTTPS Chosun URL
+and calls `POST /api/v1/scrape` on the same server. It displays the expression
+when reliably classified, processing status, and the full JSON response (including
+raw OCR), or the API error. Submitting this form performs real external fetching
+and OCR; the four fixture links remain offline. Configure `DATABASE_URL` to a
+running PostgreSQL database and install the Korean/English OCR models as described
+above before submitting. For locally provisioned models, also set
+`TESSDATA_PREFIX="$PWD/.ocr-models"` when starting the server. Duplicate URLs use
+the existing saved result. The form does not enable local URL fetching or bypass
+API host validation. Keep `ENABLE_TEST_SITE=false` in production.
+
 It visibly links to all four pages:
 
 - [One tall lesson image](http://127.0.0.1:8000/_dev/test-site/articles/one-tall-image)

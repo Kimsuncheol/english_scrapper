@@ -1,4 +1,4 @@
-"""Opt-in, disk-fixture-only parser playground. No HTTP client or OCR calls."""
+"""Opt-in fixture playground with a browser form for the public scrape API."""
 
 from html import escape
 import json
@@ -19,14 +19,14 @@ CASES = {
     "no-lesson-image": ("No lesson image", "A text-only article should report no_lesson_image."),
     "malformed-data": ("Malformed article data", "Broken JSON-LD and Fusion data should be ignored safely."),
 }
-ASSETS = {"style.css", "lesson.png", "lesson-small.png", "thumbnail.png"}
+ASSETS = {"style.css", "scrape.js", "lesson.png", "lesson-small.png", "thumbnail.png"}
 HEADERS = {
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
     "X-Robots-Tag": "noindex, nofollow",
     "Referrer-Policy": "no-referrer",
     # Embedded article scripts are data for the parser, never browser code.
-    "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+    "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
 }
 router = APIRouter(prefix=PREFIX, include_in_schema=False)
 
