@@ -83,12 +83,8 @@ def debug_panel(data):
 
 @router.get("/", response_class=HTMLResponse)
 def index():
-    cards = "".join(f'<a class="fixture-card" href="{PREFIX}/articles/{slug}">'
-        f'<span class="case-number">0{index}</span><h2>{escape(title)}</h2>'
-        f'<p>{escape(description)}</p><span>Open fixture →</span></a>'
-        for index, (slug, (title, description)) in enumerate(CASES.items(), 1))
     html = (ROOT / "index.html").read_text(encoding="utf-8")
-    html = html.replace("<!-- FIXTURE_NAV -->", navigation()).replace("<!-- FIXTURE_LINKS -->", cards)
+    html = html.replace("<!-- FIXTURE_NAV -->", navigation())
     return HTMLResponse(html, headers=HEADERS)
 
 
