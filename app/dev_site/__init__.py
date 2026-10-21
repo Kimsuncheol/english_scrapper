@@ -5,11 +5,14 @@ import json
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
 
 from app.services.errors import ArticleFetchError
 from app.services.parsing import metadata_from_page, parse_article_html, read_page
+from app.dependencies import get_store
+from app.schemas import SeriesCheckResponse, SeriesSavedResponse
+from app.services.series import saved_expressions
 
 ROOT = Path(__file__).parent
 PREFIX = "/_dev/test-site"
@@ -102,3 +105,15 @@ def asset(name: str):
     if name not in ASSETS:
         raise HTTPException(status_code=404, detail="Unknown development asset")
     return FileResponse(ROOT / "assets" / name, headers=HEADERS)
+
+
+@router.get("/series/saved", response_model=SeriesSavedResponse)
+async def series_saved(response: Response, store=Depends(get_store)):
+    response.headers["Cache-Control"] = "no-store"
+    return await saved_expressions(store)
+
+
+@router.post("/series/check", response_model=SeriesCheckResponse)
+async def series_check(request: Request, response: Response, store=Depends(get_store)):
+    response.headers["Cache-Control"] = "no-store"
+    return await request.app.state.series_checker.check(store)

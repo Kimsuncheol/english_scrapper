@@ -9,7 +9,7 @@ from app.services.errors import ArticleFetchError
 from app.services.parsing import read_page, nested
 from app.services.urls import validate_article_url
 
-SERIES_PAGE = "https://www.chosun.com/national/nie/english/"
+SERIES_PAGE = "https://www.chosun.com/tag/daily-speaking-english/"
 SERIES_TITLE = re.compile(r"^\s*\[?\s*스피킹이\s+강해지는\s+영어\s*\]?")
 
 

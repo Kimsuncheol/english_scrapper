@@ -16,6 +16,7 @@ from app.services.scrape import ScrapeConfig
 from app.daily_config import DailyConfig
 from app.daily_api import router as daily_router
 from app.services.daily import DailyRunner
+from app.services.series import SeriesChecker
 
 
 @asynccontextmanager
@@ -28,6 +29,7 @@ async def lifespan(app: FastAPI):
     # /health must not wait for OCR or perform any network/model work.
     daily = DailyRunner(DailyConfig.from_env())
     app.state.daily_runner = daily
+    app.state.series_checker = SeriesChecker()
     daily.start()
     try:
         yield

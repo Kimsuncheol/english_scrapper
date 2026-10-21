@@ -171,7 +171,7 @@ and [index configuration](https://firebase.google.com/docs/firestore/query-data/
 ### Discovery and retained results
 
 The fixed discovery source is the publisher's
-[English-section page](https://www.chosun.com/national/nie/english/). It is fetched
+[Speaking English tag page](https://www.chosun.com/tag/daily-speaking-english/). It is fetched
 once per daily run (with bounded retries) using the same HTTPS, public-IP pinning,
 redirect, timeout and 2 MiB controls as article fetching. Links come from actual
 HTML anchors or safely parsed Fusion `contentCache`/`globalContent` story objects.
@@ -547,6 +547,54 @@ parser**: title, canonical URL, published date, section, language, image candida
 selection, resized URLs and any parsing error. The image-selection result links
 to its local PNG file. The malformed page also shows zero parsed JSON-LD documents
 and no usable Fusion data, while retaining title/source fallbacks.
+
+### Check for new expressions on the test website
+
+The homepage shows **Latest Speaking English expressions**, loading up to ten
+series lessons from the twenty most recently saved records in Firestore. Cards
+show the recognized expression, Korean meaning if classified, publication time,
+processing status, source article, and a link to the saved OCR JSON. It orders
+cards by publication time and never substitutes a headline for missing OCR text.
+The publisher headline is labeled separately; partial OCR remains visibly marked.
+Opening the homepage reads saved data only. Individual synthetic fixture pages
+continue to work without Firestore, external HTTP, or OCR.
+
+Press **Check for new expressions** to fetch the fixed publisher tag page:
+[스피킹이 강해지는 영어](https://www.chosun.com/tag/daily-speaking-english/).
+The service reads safely parsed links/Fusion data, takes the first matching story
+in publisher order, and calls the same idempotent scrape/save pipeline used by
+manual submissions and daily jobs. An unknown latest article runs real image OCR,
+is saved in Firestore, and appears on the page. A known latest article is returned
+without another image download or OCR run. **Refresh saved expressions** reloads
+the cards without contacting Chosun, including results saved by a daily job.
+Manual URL submissions refresh these cards too.
+
+“New” means **new to this scraper**, not proof that an article was published since
+your previous visit. The first check can import an existing latest article. A check
+processes only the newest listed lesson, not the entire historical backlog. Empty
+listings and upstream errors are shown explicitly rather than called “up to date”.
+Raw OCR is preserved even when an expression could not be classified reliably.
+
+Successful discovery is cached for 60 seconds **per process**; the UI shows the
+actual source-check time and whether the cache was used. Errors are not cached;
+failed OCR remains retryable using the shared pipeline. Concurrent checks receive
+`503 series_check_busy`, while Firestore's article lease protects concurrent work
+across processes. This cache is not a public rate limiter; use cautious frequency.
+There is no browser polling or new in-process timer. Guaranteed unattended checks
+still require the external scheduling setup above; Render Free can sleep.
+
+The following routes exist only with `ENABLE_TEST_SITE=true` and remain absent
+from OpenAPI and production by default:
+
+```sh
+BASE_URL=http://127.0.0.1:8765
+# Firestore reads only:
+curl --fail "$BASE_URL/_dev/test-site/series/saved"
+# Explicit publisher check; may fetch an image, run OCR, and save:
+curl --fail --request POST "$BASE_URL/_dev/test-site/series/check"
+# Deterministic mocked discovery/OCR tests:
+.venv/bin/python -m pytest tests/test_series.py -q
+```
 
 ### Curl examples: fixture pages and scrape URL validation
 

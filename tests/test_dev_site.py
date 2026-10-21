@@ -70,8 +70,9 @@ def test_development_routes_do_not_exist_by_default(monkeypatch, enabled):
     else:
         monkeypatch.setenv("ENABLE_TEST_SITE", enabled)
     client = TestClient(create_app())
-    for path in [PREFIX + "/", PREFIX + "/articles/one-tall-image", PREFIX + "/assets/lesson.png", PREFIX + "/assets/scrape.js"]:
+    for path in [PREFIX + "/", PREFIX + "/articles/one-tall-image", PREFIX + "/assets/lesson.png", PREFIX + "/assets/scrape.js", PREFIX + "/series/saved"]:
         assert client.get(path).status_code == 404
+    assert client.post(PREFIX + "/series/check").status_code == 404
     assert not any(getattr(route, "path", "").startswith(PREFIX) for route in client.app.routes)
 
 

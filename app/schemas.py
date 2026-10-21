@@ -197,3 +197,26 @@ class ArticlePage(BaseModel):
     total: int = Field(ge=0)
     limit: int = Field(ge=1, le=100)
     offset: int = Field(ge=0)
+
+
+class SeriesExpression(BaseModel):
+    id: str
+    article: ArticleMetadata
+    expression: str | None = None
+    korean_meaning: str | None = None
+    processing_status: Literal["completed", "partial"]
+    lesson_status: Literal["structured", "partial", "unparsed", "empty"]
+    saved_at: datetime
+
+
+class SeriesSavedResponse(BaseModel):
+    items: list[SeriesExpression]
+
+
+class SeriesCheckResponse(BaseModel):
+    status: Literal["new", "up_to_date", "empty"]
+    source_url: HttpUrl
+    checked_at: datetime
+    discovery_cached: bool
+    listed_count: int = Field(ge=0)
+    latest: SeriesExpression | None = None

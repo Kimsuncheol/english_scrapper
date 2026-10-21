@@ -28,3 +28,11 @@ transport. It tests the real fetch/decode pipeline with mocked OCR and memory
 persistence; it adds no production localhost exception and needs no running
 server, model download or external requests. Unusable malformed data reports
 `invalid_article_data`; a valid text-only article reports `no_lesson_image`.
+
+The homepage also reads recent saved series expressions from Firestore. Its
+**Check for new expressions** button explicitly checks the fixed publisher tag
+page and processes the newest unsaved article through the normal OCR pipeline.
+Successful source discovery is cached for 60 seconds per process. The individual
+fixture article pages remain offline; no publisher/OCR calls happen on homepage
+load. Saved cards persist through Firestore and can be reloaded with **Refresh
+saved expressions**. “New” means new to the scraper, not necessarily newly published.

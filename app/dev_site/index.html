@@ -4,6 +4,15 @@
 <link rel="stylesheet" href="/_dev/test-site/assets/style.css"><link rel="icon" type="image/png" href="/_dev/test-site/assets/thumbnail.png"><script src="/_dev/test-site/assets/scrape.js" defer></script></head>
 <body><!-- FIXTURE_NAV -->
 <main class="index"><p class="eyebrow">LOCAL PARSER PLAYGROUND</p>
+<section class="scrape-panel" aria-labelledby="series-heading">
+<h2 id="series-heading">Latest Speaking English expressions</h2>
+<p>Check Chosun’s series page for its newest lesson. If it has not been saved, the scraper runs OCR and adds it here.</p>
+<div class="scrape-controls"><button id="series-check" type="button">Check for new expressions</button><button id="series-refresh" type="button">Refresh saved expressions</button></div>
+<p id="series-status" role="status" aria-live="polite"></p>
+<p id="saved-status" class="muted" role="status" aria-live="polite">Loading saved expressions…</p>
+<div id="series-expressions" class="series-grid" aria-label="Saved Speaking English expressions"></div>
+<p class="muted">“New” means not yet saved by this scraper. Each check processes only the newest listed article; older unsaved lessons are not imported here. Publisher discovery is cached for 60 seconds. Checks run when you press the button.</p>
+</section>
 <section class="scrape-panel" aria-labelledby="scrape-heading">
 <h2 id="scrape-heading">Scrape a Chosun article</h2>
 <p>Paste an HTTPS Chosun article URL to fetch its lesson image, run real OCR, and save the result. This makes external requests; fixture browsing below stays offline.</p>
