@@ -5,13 +5,18 @@
 <body><!-- FIXTURE_NAV -->
 <main class="index"><p class="eyebrow">LOCAL PARSER PLAYGROUND</p>
 <section class="scrape-panel" aria-labelledby="series-heading">
-<h2 id="series-heading">Latest Speaking English expressions</h2>
+<h2 id="series-heading">Speaking English lessons by day</h2>
 <p>Check Chosun’s series page for its newest lesson. If it has not been saved, the scraper runs OCR and adds it here.</p>
 <div class="scrape-controls"><button id="series-check" type="button">Check for new expressions</button><button id="series-refresh" type="button">Refresh saved expressions</button></div>
 <p id="series-status" role="status" aria-live="polite"></p>
+<label for="series-available">Older days currently listed by Chosun</label>
+<div class="scrape-controls"><select id="series-available" disabled><option value="">Check the series above to list available days</option></select><button id="series-load-day" type="button" disabled>Load selected day</button></div>
 <p id="saved-status" class="muted" role="status" aria-live="polite">Loading saved expressions…</p>
+<label for="series-date">Choose a loaded lesson date</label>
+<select id="series-date"><option value="">All loaded days</option></select>
 <div id="series-expressions" class="series-grid" aria-label="Saved Speaking English expressions"></div>
-<p class="muted">“New” means not yet saved by this scraper. Each check processes only the newest listed article; older unsaved lessons are not imported here. Publisher discovery is cached for 60 seconds. Checks run when you press the button.</p>
+<div class="scrape-controls"><button id="series-more" type="button" hidden>Load more saved days</button></div>
+<p class="muted">“New” means not yet saved by this scraper. A check processes the newest listed article; use “Load selected day” for another publisher-listed day. Older saved records remain available through “Load more saved days”. Publisher discovery is cached for 60 seconds. Checks run when you press the button.</p>
 </section>
 <section class="scrape-panel" aria-labelledby="scrape-heading">
 <h2 id="scrape-heading">Scrape a Chosun article</h2>

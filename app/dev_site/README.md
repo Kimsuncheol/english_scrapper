@@ -36,3 +36,10 @@ Successful source discovery is cached for 60 seconds per process. The individual
 fixture article pages remain offline; no publisher/OCR calls happen on homepage
 load. Saved cards persist through Firestore and can be reloaded with **Refresh
 saved expressions**. “New” means new to the scraper, not necessarily newly published.
+
+Daily lesson views include all structured fields that were identified, complete
+raw OCR text, and expandable original regions. The lesson day is parsed from the
+real article URL separately from its publication timestamp. Saved-day pagination
+has no fixed recent-record cutoff. Checking the source lists publisher-provided
+older dates, which can be individually loaded through the normal scrape pipeline.
+The rolling source feed is not a complete historical archive.

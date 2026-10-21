@@ -52,60 +52,179 @@ const savedStatus = document.getElementById("saved-status");
 const expressions = document.getElementById("series-expressions");
 const seriesBase = "/_dev/test-site/series";
 
+const seriesMore = document.getElementById("series-more");
+const seriesDate = document.getElementById("series-date");
+const availableDays = document.getElementById("series-available");
+const loadDay = document.getElementById("series-load-day");
+let seriesItems = [];
+let nextOffset = null;
+let historyRequest = 0;
+
+function lessonDate(item) {
+  return item.issue_date || "";
+}
+
 function renderExpressions(items) {
   expressions.replaceChildren();
+  const fieldLabels = {
+    korean_meaning: "Korean meaning",
+    korean_explanation: "Korean explanation",
+    english_dialogue: "English dialogue",
+    korean_dialogue_translation: "Korean dialogue translation",
+    vocabulary_notes: "Vocabulary notes",
+    source_credit: "Source credit",
+  };
   for (const item of items) {
     const card = document.createElement("article");
     card.className = "saved-expression";
+    const day = document.createElement("p");
+    day.className = "eyebrow";
+    day.textContent = item.issue_date ? `Lesson date: ${item.issue_date}` : "Lesson date not supplied";
     const title = document.createElement("h3");
     title.textContent = item.expression || "Expression needs OCR review";
-    const meaning = document.createElement("p");
-    meaning.textContent = item.korean_meaning || "";
     const headline = document.createElement("p");
     headline.textContent = `Publisher headline: ${item.article.title || "Untitled lesson"}`;
     const state = document.createElement("p");
     state.className = "muted";
     state.textContent = `Published: ${item.article.published_at ? new Date(item.article.published_at).toLocaleString() : "Not supplied"} · Processing: ${item.processing_status}`;
-    const source = document.createElement("a");
-    source.textContent = "Read source article";
-    source.href = item.article.url;
-    source.target = "_blank";
-    source.rel = "noopener noreferrer";
-    const raw = document.createElement("a");
-    raw.textContent = "View saved OCR JSON";
-    raw.href = `/api/v1/articles/${encodeURIComponent(item.id)}`;
     const links = document.createElement("p");
     links.className = "expression-links";
-    links.append(source, raw);
-    card.append(title, meaning, headline, state, links);
-    if (item.processing_status === "partial") {
-      const review = document.createElement("p");
-      review.className = "muted";
-      review.textContent = "Some lesson fields need review. Raw OCR is preserved in the saved JSON.";
-      card.append(review);
+    for (const [label, url] of [
+      ["Read source article", item.article.url],
+      ["Open original lesson image", item.lesson_image.url],
+      ["View saved OCR JSON", `/api/v1/articles/${encodeURIComponent(item.id)}`],
+    ]) {
+      const link = document.createElement("a");
+      link.textContent = label;
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      links.append(link);
     }
+    card.append(day, title, headline, state, links);
+    const fields = document.createElement("div");
+    fields.className = "lesson-fields";
+    for (const [key, label] of Object.entries(fieldLabels)) {
+      const field = item.lesson.fields[key];
+      if (key === "source_credit" && !field) continue;
+      const section = document.createElement("section");
+      const heading = document.createElement("h4");
+      heading.textContent = label;
+      const text = document.createElement("p");
+      text.className = field ? "lesson-field-text" : "muted";
+      text.textContent = field?.text || "Not reliably classified; see full OCR text below.";
+      section.append(heading, text);
+      fields.append(section);
+    }
+    card.append(fields);
+    const rawHeading = document.createElement("h4");
+    rawHeading.textContent = "Full OCR text";
+    const rawNote = document.createElement("p");
+    rawNote.className = "muted";
+    rawNote.textContent = "All recognized text is shown without truncation. OCR can contain errors; compare the original lesson image when needed.";
+    const raw = document.createElement("pre");
+    raw.className = "lesson-raw-text";
+    raw.textContent = item.ocr.raw_text || "OCR returned no text.";
+    const reasons = document.createElement("p");
+    reasons.className = "muted";
+    reasons.textContent = item.lesson.reasons.join(" ");
+    const regions = document.createElement("details");
+    const regionHeading = document.createElement("summary");
+    regionHeading.textContent = `OCR regions, confidence and bounding boxes (${item.ocr.regions.length})`;
+    const regionText = document.createElement("pre");
+    regions.append(regionHeading, regionText);
+    regions.addEventListener("toggle", () => {
+      if (regions.open && !regionText.textContent) regionText.textContent = JSON.stringify(item.ocr.regions, null, 2);
+    });
+    card.append(rawHeading, rawNote, raw, reasons, regions);
     expressions.append(card);
   }
 }
 
-async function loadSavedExpressions() {
+function showLoadedDays() {
+  const selected = seriesDate.value;
+  const days = [...new Set(seriesItems.map(lessonDate).filter(Boolean))].sort().reverse();
+  seriesDate.replaceChildren();
+  for (const [value, label] of [["", "All loaded days"], ...days.map(day => [day, day])]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    seriesDate.append(option);
+  }
+  seriesDate.value = days.includes(selected) ? selected : "";
+  seriesItems.sort((left, right) => lessonDate(right).localeCompare(lessonDate(left)) || right.saved_at.localeCompare(left.saved_at));
+  renderExpressions(seriesItems.filter(item => !seriesDate.value || lessonDate(item) === seriesDate.value));
+}
+
+async function loadSavedExpressions(append = false) {
+  const request = ++historyRequest;
   seriesRefresh.disabled = true;
+  seriesMore.disabled = true;
   try {
-    const response = await fetch(`${seriesBase}/saved`, { cache: "no-store" });
+    const offset = append ? nextOffset : 0;
+    if (offset === null) return;
+    const response = await fetch(`${seriesBase}/saved?limit=5&offset=${offset}`, { cache: "no-store" });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error?.message || "Could not load saved expressions.");
-    renderExpressions(payload.items);
-    savedStatus.textContent = payload.items.length
-      ? `${payload.items.length} recently saved lesson(s), newest publication first.`
-      : "No saved Speaking English lessons yet. Check for a new expression above.";
+    if (request !== historyRequest) return;
+    const combined = append ? [...seriesItems, ...payload.items] : payload.items;
+    seriesItems = [...new Map(combined.map(item => [item.id, item])).values()];
+    nextOffset = payload.next_offset;
+    seriesMore.hidden = nextOffset === null;
+    showLoadedDays();
+    savedStatus.textContent = `${seriesItems.length} saved lesson(s) loaded. Full OCR text is displayed for each day.`
+      + (nextOffset !== null ? " Load more saved days below to continue browsing." : " All saved records have been scanned.");
   } catch (error) {
-    savedStatus.textContent = error.message || "Could not load saved expressions. Check the server connection.";
+    if (request === historyRequest) savedStatus.textContent = error.message || "Could not load saved expressions. Check the server connection.";
   } finally {
-    seriesRefresh.disabled = false;
+    if (request === historyRequest) {
+      seriesRefresh.disabled = false;
+      seriesMore.disabled = false;
+    }
   }
 }
 
-seriesRefresh.addEventListener("click", loadSavedExpressions);
+seriesDate.addEventListener("change", showLoadedDays);
+seriesRefresh.addEventListener("click", () => loadSavedExpressions());
+seriesMore.addEventListener("click", () => loadSavedExpressions(true));
+
+loadDay.addEventListener("click", async () => {
+  if (!availableDays.value || submit.disabled || seriesCheck.disabled) return;
+  loadDay.disabled = true;
+  submit.disabled = true;
+  seriesCheck.disabled = true;
+  seriesStatus.className = "";
+  seriesStatus.textContent = "Loading the selected day's complete lesson. Unsaved images require OCR…";
+  try {
+    const response = await fetch(`${seriesBase}/day`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ article_url: availableDays.value }),
+    });
+    const item = await response.json();
+    if (!response.ok) throw new Error(item.error?.message || "Could not load this day.");
+    // A slower history request must not erase the explicitly selected day.
+    historyRequest += 1;
+    seriesRefresh.disabled = false;
+    seriesMore.disabled = false;
+    // Retain this record even if an old cached result falls outside page one.
+    seriesItems = [item, ...seriesItems.filter(saved => saved.id !== item.id)];
+    seriesDate.value = "";
+    showLoadedDays();
+    seriesDate.value = item.issue_date || "";
+    showLoadedDays();
+    savedStatus.textContent = `${seriesItems.length} saved lesson(s) loaded. Use the date selector to switch days.`;
+    seriesStatus.className = "success";
+    seriesStatus.textContent = `Loaded lesson for ${item.issue_date || "the selected day"}. Full OCR text is displayed below.`;
+  } catch (error) {
+    seriesStatus.className = "error";
+    seriesStatus.textContent = error.message || "Could not load this day. Try again later.";
+  } finally {
+    loadDay.disabled = !availableDays.value;
+    submit.disabled = false;
+    seriesCheck.disabled = false;
+  }
+});
+
 seriesCheck.addEventListener("click", async () => {
   if (seriesCheck.disabled || submit.disabled) return;
   seriesCheck.disabled = true;
@@ -124,8 +243,22 @@ seriesCheck.addEventListener("click", async () => {
     seriesStatus.className = payload.status === "empty" ? "" : "success";
     seriesStatus.textContent = `${messages[payload.status]} Source checked: ${new Date(payload.checked_at).toLocaleString()}.`
       + (payload.discovery_cached ? " Using the 60-second discovery cache." : "");
-    if (payload.latest) renderExpressions([payload.latest]);
+    availableDays.replaceChildren();
+    for (const day of payload.listed_days) {
+      const option = document.createElement("option");
+      option.value = day.article_url;
+      option.textContent = day.issue_date || day.article_url;
+      availableDays.append(option);
+    }
+    availableDays.disabled = !payload.listed_days.length;
+    loadDay.disabled = availableDays.disabled;
     await loadSavedExpressions();
+    if (payload.latest) {
+      seriesItems = [payload.latest, ...seriesItems.filter(item => item.id !== payload.latest.id)];
+      seriesDate.value = "";
+      showLoadedDays();
+      savedStatus.textContent = `${seriesItems.length} saved lesson(s) loaded. Full OCR text is displayed for each day.`;
+    }
   } catch (error) {
     seriesStatus.className = "error";
     seriesStatus.textContent = error.message || "Could not check the publisher. Try again later.";

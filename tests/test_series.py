@@ -52,13 +52,14 @@ def test_real_tag_shape_discovery_keeps_publisher_order_and_filters():
 
 def test_new_then_duplicate_check_uses_shared_pipeline_and_discovery_cache(site):
     client, store, source, processor = site
-    assert client.get(PREFIX + "/saved").json() == {"items": []}
+    assert client.get(PREFIX + "/saved").json() == {"items": [], "offset": 0, "next_offset": None}
     first = client.post(PREFIX + "/check")
     assert first.status_code == 200
     data = first.json()
     assert data["status"] == "new" and data["latest"]["expression"] == "Make some room."
     assert data["latest"]["processing_status"] == "partial"
     assert not data["discovery_cached"] and data["listed_count"] == 2
+    assert [(item["article_url"], item["issue_date"]) for item in data["listed_days"]] == [(ONE, "2026-10-21"), (TWO, "2026-10-20")]
     duplicate = client.post(PREFIX + "/check").json()
     assert duplicate["status"] == "up_to_date" and duplicate["discovery_cached"]
     source.assert_awaited_once()
@@ -147,3 +148,81 @@ def test_concurrent_checks_return_clear_busy_error(monkeypatch):
             release.set()
             assert (await first).status == "empty"
     asyncio.run(run())
+
+
+def test_full_daily_lesson_preserves_all_fields_raw_text_and_geometry(site):
+    import json
+    from app.schemas import OCRText
+    from app.services.lesson import parse_lesson
+    client, store, source, processor = site
+    fixture = json.loads((Path(__file__).parent / "fixtures/lesson_ocr_original_six_sections.json").read_text())
+    value = lesson()
+    value.ocr = OCRText.model_validate(fixture["ocr"])
+    value.lesson = parse_lesson(value.ocr, fixture["image"]["width"], fixture["image"]["height"])
+    # URL lesson day differs from its publisher's previous-evening timestamp.
+    from test_daily import NOW
+    value.article.published_at = NOW - timedelta(days=1)
+    store.saved[ONE] = value
+    card = client.get(PREFIX + "/saved").json()["items"][0]
+    assert card["issue_date"] == "2026-10-21"
+    assert card["ocr"] == value.ocr.model_dump(mode="json")
+    assert card["lesson"] == value.lesson.model_dump(mode="json")
+    assert card["lesson_image"] == value.lesson_image.model_dump(mode="json")
+    for name, expected in fixture["expected"]["fields"].items():
+        assert card["lesson"]["fields"][name]["text"] == expected["text"]
+    source.assert_not_awaited()
+    processor.assert_not_awaited()
+
+
+def test_all_saved_days_are_reachable_beyond_the_old_twenty_record_limit(site):
+    client, store, source, processor = site
+    for index in range(24):
+        url = ONE.replace("/ONE/", f"/DAY{index}/")
+        store.saved[url] = lesson(url)
+    offset, ids = 0, []
+    while offset is not None:
+        page = client.get(PREFIX + f"/saved?limit=5&offset={offset}").json()
+        assert len(page["items"]) <= 5
+        ids.extend(item["id"] for item in page["items"])
+        offset = page["next_offset"]
+    assert len(ids) == len(set(ids)) == 24
+    source.assert_not_awaited()
+    processor.assert_not_awaited()
+
+
+def test_non_series_page_does_not_hide_later_series_days(site):
+    client, store, source, processor = site
+    store.saved[TWO] = result(TWO)
+    store.saved[ONE] = lesson()
+    first = client.get(PREFIX + "/saved?limit=1&offset=0").json()
+    assert first["items"] == [] and first["next_offset"] == 1
+    second = client.get(PREFIX + "/saved?limit=1&offset=1").json()
+    assert second["items"][0]["issue_date"] == "2026-10-21"
+    assert second["next_offset"] is None
+
+
+@pytest.mark.parametrize("query", ["limit=0", "limit=11", "offset=-1", "offset=invalid"])
+def test_full_lesson_pagination_validation(site, query):
+    client, *_ = site
+    assert client.get(PREFIX + "/saved?" + query).status_code == 422
+
+
+def test_load_an_older_day_returns_complete_lesson_and_is_idempotent(site):
+    client, store, source, processor = site
+    processor.return_value = lesson(TWO)
+    loaded = client.post(PREFIX + "/day", json={"article_url": TWO})
+    assert loaded.status_code == 200
+    data = loaded.json()
+    assert data["issue_date"] == "2026-10-20"
+    assert data["ocr"]["raw_text"] == "안녕 Hello"
+    assert "lesson_image" in data and "fields" in data["lesson"]
+    assert client.post(PREFIX + "/day", json={"article_url": TWO}).json() == data
+    processor.assert_awaited_once_with(TWO)
+    source.assert_not_awaited()  # An explicitly submitted URL uses the normal pipeline.
+
+
+@pytest.mark.parametrize("url", ["http://localhost/test", "https://127.0.0.1/test", "https://example.test/test"])
+def test_day_loading_keeps_public_url_validation(site, url):
+    client, store, source, processor = site
+    assert client.post(PREFIX + "/day", json={"article_url": url}).status_code == 422
+    processor.assert_not_awaited()

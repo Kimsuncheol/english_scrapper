@@ -1,13 +1,25 @@
 """Check the publisher's newest listed lesson using the shared saved pipeline."""
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+import re
 import time
+from urllib.parse import urlsplit
 
-from app.schemas import SavedLessonResponse, SeriesCheckResponse, SeriesExpression, SeriesSavedResponse
+from app.schemas import SavedLessonResponse, SeriesCheckResponse, SeriesExpression, SeriesListedDay, SeriesSavedResponse
 from app.services.discovery import SERIES_PAGE, SERIES_TITLE, discover_articles
 from app.services.errors import ArticleFetchError
 from app.services.saved import process_and_store
+
+
+def issue_date_from_url(url):
+    match = re.fullmatch(r"/national/nie/english/(\d{4})/(\d{2})/(\d{2})/[^/]+/?", urlsplit(str(url)).path)
+    if match:
+        try:
+            return date(*map(int, match.groups()))
+        except ValueError:
+            pass
+    return None
 
 
 def expression_card(record):
@@ -17,12 +29,16 @@ def expression_card(record):
         expression=fields.expression.text if fields.expression else None,
         korean_meaning=fields.korean_meaning.text if fields.korean_meaning else None,
         processing_status=saved.payload.processing.status,
-        lesson_status=saved.payload.lesson.status, saved_at=saved.created_at)
+        lesson_status=saved.payload.lesson.status, saved_at=saved.created_at,
+        issue_date=issue_date_from_url(saved.payload.article.url), lesson_image=saved.payload.lesson_image,
+        lesson=saved.payload.lesson, ocr=saved.payload.ocr)
 
 
-async def saved_expressions(store):
-    # Bound reads and payload memory. This is a recent-results panel, not an archive.
-    page = await store.articles(limit=20, offset=0)
+async def saved_expressions(store, limit=5, offset=0):
+    # Paginate all stored records with bounded full-OCR payloads per request.
+    # Offsets scan underlying records, including non-series articles, so a page
+    # containing no matching lessons must still expose its continuation.
+    page = await store.articles(limit=limit, offset=offset)
     items = []
     for summary in page["items"]:
         article = summary["article"]
@@ -32,10 +48,10 @@ async def saved_expressions(store):
         record = await store.lesson(summary["id"])
         if record:
             items.append(expression_card(record))
-        if len(items) == 10:
-            break
-    items.sort(key=lambda item: (item.article.published_at or item.saved_at).timestamp(), reverse=True)
-    return SeriesSavedResponse(items=items)
+    items.sort(key=lambda item: (item.issue_date.isoformat() if item.issue_date else "", item.saved_at.timestamp()), reverse=True)
+    scanned = offset + len(page["items"])
+    return SeriesSavedResponse(items=items, offset=offset,
+        next_offset=scanned if scanned < page["total"] else None)
 
 
 class SeriesChecker:
@@ -63,4 +79,5 @@ class SeriesChecker:
             saved, created = await process_and_store(store, self.urls[0])
             return SeriesCheckResponse(status="new" if created else "up_to_date",
                 source_url=SERIES_PAGE, checked_at=self.checked_at,
-                discovery_cached=cached, listed_count=len(self.urls), latest=expression_card(saved))
+                discovery_cached=cached, listed_count=len(self.urls), latest=expression_card(saved),
+                listed_days=[SeriesListedDay(article_url=url, issue_date=issue_date_from_url(url)) for url in self.urls])

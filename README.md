@@ -550,12 +550,25 @@ and no usable Fusion data, while retaining title/source fallbacks.
 
 ### Check for new expressions on the test website
 
-The homepage shows **Latest Speaking English expressions**, loading up to ten
-series lessons from the twenty most recently saved records in Firestore. Cards
-show the recognized expression, Korean meaning if classified, publication time,
-processing status, source article, and a link to the saved OCR JSON. It orders
-cards by publication time and never substitutes a headline for missing OCR text.
-The publisher headline is labeled separately; partial OCR remains visibly marked.
+The homepage shows **Speaking English lessons by day** with the full saved
+lesson, not just its heading. Each day displays every available structured field
+(Korean meaning/explanation, English dialogue, Korean translation, vocabulary,
+and source credit), the **complete raw OCR text without truncation**, processing
+status and parser notes, and expandable raw OCR regions/confidence/bounding boxes.
+Unclassified fields are explicitly marked; the page never invents missing text or
+silently treats OCR as fully reliable. Links open the original lesson image and
+saved OCR JSON for review; publisher images are not copied into fixtures or loaded
+automatically.
+
+**Lesson date** comes from the actual article URL's year/month/day path, while
+**Published** retains the original metadata timestamp (which can be the previous
+evening). Invalid/missing URL dates remain unspecified. The date selector switches
+between loaded days. **Load more saved days** paginates every stored record, five
+at a time, without the previous ten-lesson/twenty-record cutoff. Pages containing
+non-series records still expose continuation so later matching days are reachable.
+Dates are sorted among loaded results; concurrent inserts can shift offset pages,
+so the browser deduplicates by saved article ID. Refresh resets to page one.
+
 Opening the homepage reads saved data only. Individual synthetic fixture pages
 continue to work without Firestore, external HTTP, or OCR.
 
@@ -567,11 +580,21 @@ manual submissions and daily jobs. An unknown latest article runs real image OCR
 is saved in Firestore, and appears on the page. A known latest article is returned
 without another image download or OCR run. **Refresh saved expressions** reloads
 the cards without contacting Chosun, including results saved by a daily job.
-Manual URL submissions refresh these cards too.
+Manual URL submissions refresh these lessons too. The check also lists dates
+currently present in the publisher's tag feed. Choose one under **Older days
+currently listed by Chosun** and press **Load selected day** to OCR/save an unsaved
+day or retrieve its existing full result. The selected day is retained in the UI
+even when it is an older cached result outside page one. A selected day uses the
+same URL validation, locking and persistence pipeline as a manual submission.
 
 “New” means **new to this scraper**, not proof that an article was published since
 your previous visit. The first check can import an existing latest article. A check
-processes only the newest listed lesson, not the entire historical backlog. Empty
+processes only the newest listed lesson. Other listed days can be loaded
+individually; already saved history is browsable through pagination. The publisher
+feed is a rolling list, not a complete historical archive. A day no longer listed
+can still be loaded through the manual URL form if you have its real article URL;
+the application never guesses dates/IDs or claims every historical article has
+already been imported. Empty
 listings and upstream errors are shown explicitly rather than called “up to date”.
 Raw OCR is preserved even when an expression could not be classified reliably.
 
@@ -590,6 +613,8 @@ from OpenAPI and production by default:
 BASE_URL=http://127.0.0.1:8765
 # Firestore reads only:
 curl --fail "$BASE_URL/_dev/test-site/series/saved"
+# Next page of full saved lessons:
+curl --fail "$BASE_URL/_dev/test-site/series/saved?limit=5&offset=5"
 # Explicit publisher check; may fetch an image, run OCR, and save:
 curl --fail --request POST "$BASE_URL/_dev/test-site/series/check"
 # Deterministic mocked discovery/OCR tests:

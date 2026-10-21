@@ -5,14 +5,15 @@ import json
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
 
 from app.services.errors import ArticleFetchError
 from app.services.parsing import metadata_from_page, parse_article_html, read_page
 from app.dependencies import get_store
-from app.schemas import SeriesCheckResponse, SeriesSavedResponse
-from app.services.series import saved_expressions
+from app.schemas import ScrapeRequest, SeriesCheckResponse, SeriesExpression, SeriesSavedResponse
+from app.services.series import expression_card, saved_expressions
+from app.services.saved import process_and_store
 
 ROOT = Path(__file__).parent
 PREFIX = "/_dev/test-site"
@@ -108,12 +109,20 @@ def asset(name: str):
 
 
 @router.get("/series/saved", response_model=SeriesSavedResponse)
-async def series_saved(response: Response, store=Depends(get_store)):
+async def series_saved(response: Response, limit: int = Query(5, ge=1, le=10),
+    offset: int = Query(0, ge=0), store=Depends(get_store)):
     response.headers["Cache-Control"] = "no-store"
-    return await saved_expressions(store)
+    return await saved_expressions(store, limit, offset)
 
 
 @router.post("/series/check", response_model=SeriesCheckResponse)
 async def series_check(request: Request, response: Response, store=Depends(get_store)):
     response.headers["Cache-Control"] = "no-store"
     return await request.app.state.series_checker.check(store)
+
+
+@router.post("/series/day", response_model=SeriesExpression)
+async def series_day(body: ScrapeRequest, response: Response, store=Depends(get_store)):
+    response.headers["Cache-Control"] = "no-store"
+    saved, _ = await process_and_store(store, body.article_url)
+    return expression_card(saved)

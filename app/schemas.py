@@ -207,10 +207,21 @@ class SeriesExpression(BaseModel):
     processing_status: Literal["completed", "partial"]
     lesson_status: Literal["structured", "partial", "unparsed", "empty"]
     saved_at: datetime
+    issue_date: date | None = None
+    lesson_image: LessonImageMetadata
+    lesson: LessonParsingResult
+    ocr: OCRText
 
 
 class SeriesSavedResponse(BaseModel):
     items: list[SeriesExpression]
+    offset: int = Field(ge=0)
+    next_offset: int | None = Field(default=None, ge=0)
+
+
+class SeriesListedDay(BaseModel):
+    article_url: HttpUrl
+    issue_date: date | None = None
 
 
 class SeriesCheckResponse(BaseModel):
@@ -220,3 +231,4 @@ class SeriesCheckResponse(BaseModel):
     discovery_cached: bool
     listed_count: int = Field(ge=0)
     latest: SeriesExpression | None = None
+    listed_days: list[SeriesListedDay] = Field(default_factory=list)
