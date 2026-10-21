@@ -294,3 +294,34 @@ def test_series_pagination_orders_issue_dates_before_late_import_time():
         assert full.next_offset == 1
         await store.close()
     asyncio.run(run())
+
+
+def test_archive_page_replay_durable_pagination_and_first_day_lookup():
+    from datetime import date
+    from app.services.archive import sync_archive_page, archive_page, parse_feed
+    from test_archive import fixture
+    async def run():
+        store = await make_store()
+        first = parse_feed(fixture(1), 1)
+        last = parse_feed(fixture(143), 143)
+        await sync_archive_page(store, 1, fetch=AsyncMock(return_value=first))
+        await sync_archive_page(store, 143, fetch=AsyncMock(return_value=last))
+        await sync_archive_page(store, 143, fetch=AsyncMock(return_value=last))
+        # A synthetic partial index cannot be published as a complete archive.
+        from app.services.errors import ArticleFetchError
+        with pytest.raises(ArticleFetchError) as error:
+            await store.publish_archive()
+        assert error.value.code == "archive_incomplete"
+        await store.collection("archive_state").document("series").update({"publisher_total": 15})
+        assert await store.publish_archive() == 15
+        await store.close()
+        replacement = FirestoreStore(store.project, prefix=store.prefix)
+        page = await archive_page(replacement, 2)
+        assert page.total == 15 and page.indexed_pages == 2
+        assert page.expected_pages == 143 and page.publisher_total == 15
+        assert page.items[-1].issue_date == date(2021, 1, 1)
+        day = await archive_page(replacement, 1, date(2021, 1, 1))
+        assert day.total == 1 and day.items[0].expression == 'Original example 143-4'
+        assert (await archive_page(replacement, 1, date(2021, 1, 2))).total == 0
+        await replacement.close()
+    asyncio.run(run())

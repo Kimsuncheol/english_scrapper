@@ -1,5 +1,6 @@
 """Opt-in fixture playground with a browser form for the public scrape API."""
 
+from datetime import date
 from html import escape
 import json
 from pathlib import Path
@@ -11,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from app.services.errors import ArticleFetchError
 from app.services.parsing import metadata_from_page, parse_article_html, read_page
 from app.dependencies import get_store
-from app.schemas import ScrapeRequest, SeriesCheckResponse, SeriesExpression, SeriesSavedResponse
+from app.schemas import ArchivePage, ScrapeRequest, SeriesCheckResponse, SeriesExpression, SeriesSavedResponse
 from app.services.series import expression_card, saved_expressions
 from app.services.saved import process_and_store
 
@@ -126,3 +127,11 @@ async def series_day(body: ScrapeRequest, response: Response, store=Depends(get_
     response.headers["Cache-Control"] = "no-store"
     saved, _ = await process_and_store(store, body.article_url)
     return expression_card(saved)
+
+
+@router.get("/series/archive", response_model=ArchivePage)
+async def series_archive(response: Response, page: int = Query(1, ge=1, le=400),
+    day: date | None = None, store=Depends(get_store)):
+    from app.services.archive import archive_page
+    response.headers["Cache-Control"] = "no-store"
+    return await archive_page(store, page, day)

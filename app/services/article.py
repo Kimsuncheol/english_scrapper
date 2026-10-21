@@ -89,7 +89,7 @@ def validate_article_html(url: str, html: str) -> FetchedArticle:
     return FetchedArticle(url=url, html=html, title=title)
 
 
-async def _fetch_article(article_url: str, transport: httpx.AsyncBaseTransport | None, config: ArticleFetchConfig, listing: bool = False) -> FetchedArticle:
+async def _fetch_article(article_url: str, transport: httpx.AsyncBaseTransport | None, config: ArticleFetchConfig, listing: bool = False, json_response: bool = False) -> FetchedArticle:
     current = article_url
     # No environment proxies, cookies from other requests, automatic redirects,
     # or connection reuse across hosts sharing a CDN IP.
@@ -108,7 +108,7 @@ async def _fetch_article(article_url: str, transport: httpx.AsyncBaseTransport |
             target = httpx.URL(str(logical_url)).copy_with(host=address, fragment=None)
             async with client.stream(
                 "GET", target,
-                headers={"Host": host, "User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml", "Accept-Encoding": "identity"},
+                headers={"Host": host, "User-Agent": USER_AGENT, "Accept": "application/json" if json_response else "text/html,application/xhtml+xml", "Accept-Encoding": "identity"},
                 extensions={"sni_hostname": host},
             ) as response:
                 if response.status_code in {301, 302, 303, 307, 308}:
@@ -121,8 +121,8 @@ async def _fetch_article(article_url: str, transport: httpx.AsyncBaseTransport |
                     raise ArticleFetchError("blocked_page", "The publisher denied or rate-limited article access.", 403)
                 if response.status_code != 200:
                     raise ArticleFetchError("upstream_http_error", f"The publisher returned HTTP {response.status_code}.", upstream_status=response.status_code)
-                if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() not in {"text/html", "application/xhtml+xml"}:
-                    raise ArticleFetchError("invalid_article", "The publisher did not return HTML.", 422)
+                if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() not in ({"application/json"} if json_response else {"text/html", "application/xhtml+xml"}):
+                    raise ArticleFetchError("invalid_article", "The publisher did not return the expected JSON feed." if json_response else "The publisher did not return HTML.", 422)
                 if response.headers.get("content-encoding", "identity").lower() != "identity":
                     raise ArticleFetchError("unsupported_encoding", "The publisher ignored the uncompressed HTML request.")
                 length = response.headers.get("content-length")
@@ -149,12 +149,12 @@ async def _fetch_article(article_url: str, transport: httpx.AsyncBaseTransport |
                 return validate_article_html(str(logical_url), html)
 
 
-async def fetch_article(article_url: str, *, transport: httpx.AsyncBaseTransport | None = None, config: ArticleFetchConfig | None = None, listing: bool = False) -> FetchedArticle:
+async def fetch_article(article_url: str, *, transport: httpx.AsyncBaseTransport | None = None, config: ArticleFetchConfig | None = None, listing: bool = False, json_response: bool = False) -> FetchedArticle:
     """Fetch a validated article; transport injection is only for offline tests."""
     config = config or ArticleFetchConfig.from_env()
     try:
         async with asyncio.timeout(config.total_timeout):
-            return await _fetch_article(article_url, transport, config, listing)
+            return await _fetch_article(article_url, transport, config, listing, json_response)
     except (TimeoutError, httpx.TimeoutException) as exc:
         raise ArticleFetchError("article_timeout", "Timed out fetching the article.", 504) from exc
     except (httpx.RequestError, OSError) as exc:

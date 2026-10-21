@@ -36,6 +36,7 @@ form.addEventListener("submit", async (event) => {
     status.textContent = `HTTP ${response.status} · Processing: ${payload.processing?.status || "complete"}`
       + (expression ? ` · Expression: ${expression}` : " · No expression was reliably classified; review raw OCR below.");
     await loadSavedExpressions();
+    await loadArchive(1);
   } catch {
     status.className = "error";
     status.textContent = "Could not read the API response. Check that the local server is running before retrying.";
@@ -194,8 +195,8 @@ seriesDate.addEventListener("change", showLoadedDays);
 seriesRefresh.addEventListener("click", () => loadSavedExpressions());
 seriesMore.addEventListener("click", () => loadSavedExpressions(true));
 
-loadDay.addEventListener("click", async () => {
-  if (!availableDays.value || submit.disabled || seriesCheck.disabled) return;
+async function openArchiveLesson(articleUrl) {
+  if (!articleUrl || submit.disabled || seriesCheck.disabled) return;
   loadDay.disabled = true;
   submit.disabled = true;
   seriesCheck.disabled = true;
@@ -204,7 +205,7 @@ loadDay.addEventListener("click", async () => {
   try {
     const response = await fetch(`${seriesBase}/day`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ article_url: availableDays.value }),
+      body: JSON.stringify({ article_url: articleUrl }),
     });
     const item = await response.json();
     if (!response.ok) throw new Error(item.error?.message || "Could not load this day.");
@@ -229,7 +230,9 @@ loadDay.addEventListener("click", async () => {
     submit.disabled = false;
     seriesCheck.disabled = false;
   }
-});
+}
+
+loadDay.addEventListener("click", () => openArchiveLesson(availableDays.value));
 
 seriesCheck.addEventListener("click", async () => {
   if (seriesCheck.disabled || submit.disabled) return;
@@ -259,6 +262,7 @@ seriesCheck.addEventListener("click", async () => {
     availableDays.disabled = !payload.listed_days.length;
     loadDay.disabled = availableDays.disabled;
     await loadSavedExpressions();
+    await loadArchive(1);
     if (payload.latest) {
       seriesItems = [payload.latest, ...seriesItems.filter(item => item.id !== payload.latest.id)];
       seriesDate.value = "";
@@ -276,3 +280,86 @@ seriesCheck.addEventListener("click", async () => {
 
 // Read saved Firestore results only; publisher/OCR work requires an explicit click.
 loadSavedExpressions();
+
+
+const archiveStatus = document.getElementById("archive-status");
+const archiveEntries = document.getElementById("archive-entries");
+const archivePageInput = document.getElementById("archive-page");
+const archiveDay = document.getElementById("archive-day");
+let archivePage = 1;
+let archivePages = 0;
+let archiveFilter = "";
+let archiveRequest = 0;
+
+async function loadArchive(page = 1) {
+  const request = ++archiveRequest;
+  archiveStatus.textContent = "Loading the persistent expression archive…";
+  try {
+    const params = new URLSearchParams({ page: String(page) });
+    if (archiveFilter) params.set("day", archiveFilter);
+    const response = await fetch(`${seriesBase}/archive?${params}`, { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || "Could not load the archive.");
+    if (request !== archiveRequest) return;
+    archivePage = data.page;
+    archivePages = data.pages;
+    archivePageInput.value = String(archivePage);
+    archivePageInput.max = String(Math.max(1, archivePages));
+    archiveEntries.replaceChildren();
+    for (const item of data.items) {
+      const row = document.createElement("tr");
+      const dayCell = document.createElement("td");
+      dayCell.textContent = item.issue_date;
+      const expressionCell = document.createElement("td");
+      const source = document.createElement("a");
+      source.href = item.article_url;
+      source.textContent = item.expression;
+      source.target = "_blank";
+      source.rel = "noopener noreferrer";
+      expressionCell.append(source);
+      const action = document.createElement("td");
+      const open = document.createElement("button");
+      open.type = "button";
+      open.textContent = "Open full lesson";
+      open.setAttribute("aria-label", `Open full lesson for ${item.issue_date}`);
+      open.addEventListener("click", async () => {
+        open.disabled = true;
+        try { await openArchiveLesson(item.article_url); }
+        finally { open.disabled = false; }
+      });
+      action.append(open);
+      row.append(dayCell, expressionCell, action);
+      archiveEntries.append(row);
+    }
+    archiveStatus.className = "";
+    archiveStatus.textContent = `${data.total.toLocaleString()} expression(s)${archiveFilter ? ` for ${archiveFilter}` : " in the archive"}. Page ${data.page} of ${data.pages}.`
+      + ` Publisher: ${data.publisher_total ?? "unknown"} lessons; ${data.indexed_pages}/${data.expected_pages} source pages indexed.`
+      + (data.checked_at ? ` Last indexed: ${new Date(data.checked_at).toLocaleString()}.` : " Run the archive indexer to populate Firestore.")
+      + " Catalog titles are from the publisher; full lesson text is OCR when opened.";
+    document.getElementById("archive-first").disabled = archivePage <= 1;
+    document.getElementById("archive-prev").disabled = archivePage <= 1;
+    document.getElementById("archive-next").disabled = archivePage >= archivePages;
+    document.getElementById("archive-last").disabled = archivePage >= archivePages;
+  } catch (error) {
+    if (request !== archiveRequest) return;
+    archiveStatus.className = "error";
+    archiveStatus.textContent = error.message || "Could not load the archive. Try again later.";
+  }
+}
+document.getElementById("archive-first").addEventListener("click", () => loadArchive(1));
+document.getElementById("archive-prev").addEventListener("click", () => loadArchive(Math.max(1, archivePage - 1)));
+document.getElementById("archive-next").addEventListener("click", () => loadArchive(Math.min(archivePages, archivePage + 1)));
+document.getElementById("archive-last").addEventListener("click", () => loadArchive(archivePages || 1));
+document.getElementById("archive-go").addEventListener("click", () => {
+  if (archivePageInput.checkValidity()) loadArchive(Number(archivePageInput.value));
+});
+document.getElementById("archive-find").addEventListener("click", () => {
+  if (!archiveDay.checkValidity()) return;
+  archiveFilter = archiveDay.value;
+  loadArchive(1);
+});
+document.getElementById("archive-clear").addEventListener("click", () => {
+  archiveDay.value = archiveFilter = "";
+  loadArchive(1);
+});
+loadArchive();

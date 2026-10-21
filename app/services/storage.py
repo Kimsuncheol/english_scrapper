@@ -13,7 +13,7 @@ from google.auth.exceptions import GoogleAuthError
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 
-from app.services.discovery import stable_url
+from app.services.discovery import SERIES_TITLE, stable_url
 from app.services.errors import ArticleFetchError
 
 STORAGE_ERRORS = (GoogleAPIError, GoogleAuthError, OSError)
@@ -189,6 +189,70 @@ class FirestoreStore:
         except STORAGE_ERRORS as exc:
             raise StorageUnavailable() from exc
 
+    async def save_archive_page(self, page, items, total, lease):
+        async def operation(tx):
+            ref = self.collection("archive_state").document("series")
+            snapshot = await ref.get(transaction=tx, **RPC)
+            state = snapshot.to_dict() or {}
+            pages = sorted(set(state.get("indexed_page_numbers", [])) | {page})
+            now = clock(snapshot)
+            for item in items:
+                row = item.model_dump(mode="json")
+                row["canonical_url"] = str(item.article_url)
+                row["updated_at"] = now
+                tx.set(self.collection("archive").document(identifier(row["canonical_url"])), row)
+            tx.set(ref, {"publisher_total": total, "expected_pages": (total + 9) // 10,
+                "indexed_page_numbers": pages, "checked_at": now})
+        await lease.transaction(operation)
+
+    async def publish_archive(self):
+        """Publish an atomic metadata snapshot: one Firestore read per UI page.
+
+        Avoid Firestore offset billing (walking 143 offset pages would reread
+        over 100,000 skipped documents). The bounded 4,000-entry catalog is
+        loaded once by the operator indexer, never by a web request.
+        """
+        async with self.lease("series-archive") as lease:
+            if lease is None:
+                raise ArticleFetchError("archive_busy", "Archive refresh is already running. Retry shortly.", 503)
+            try:
+                rows = [s.to_dict() async for s in self.collection("archive").order_by("issue_date", direction="DESCENDING").order_by("__name__", direction="DESCENDING").stream(**RPC)]
+                if len(rows) > 4000:
+                    raise ArticleFetchError("archive_too_large", "Archive exceeds its configured catalog limit.")
+                ref = self.collection("archive_state").document("series")
+                async def operation(tx):
+                    state = (await ref.get(transaction=tx, **RPC)).to_dict() or {}
+                    if len(rows) < state.get("publisher_total", 0):
+                        raise ArticleFetchError("archive_incomplete", "Archive count is below the publisher count; run a full refresh.")
+                    for start in range(0, len(rows), 10):
+                        items = [{k: row[k] for k in ("article_url", "title", "expression", "issue_date")} for row in rows[start:start + 10]]
+                        tx.set(self.collection("archive_pages").document(str(start // 10 + 1)), {"items": items})
+                    tx.set(ref, {**state, "published_total": len(rows), "published_at": datetime.now(timezone.utc)})
+                await lease.transaction(operation)
+                return len(rows)
+            except STORAGE_ERRORS as exc:
+                raise StorageUnavailable() from exc
+
+    async def archive_entries(self, page=1, day=None):
+        await self.initialize()
+        try:
+            state = (await self.collection("archive_state").document("series").get(**RPC)).to_dict() or {}
+            if day:
+                query = self.collection("archive").where(filter=FieldFilter("issue_date", "==", day.isoformat()))
+                count = (await query.count().get(**RPC))[0][0].value
+                rows = query.order_by("issue_date", direction="DESCENDING").order_by("__name__", direction="DESCENDING").offset((page - 1) * 10).limit(10)
+                items = [s.to_dict() async for s in rows.stream(**RPC)]
+            else:
+                count = state.get("published_total", 0)
+                snapshot = await self.collection("archive_pages").document(str(page)).get(**RPC)
+                items = (snapshot.to_dict() or {}).get("items", []) if page <= (count + 9) // 10 else []
+            return {"items": items, "total": count,
+                "page": page, "pages": (count + 9) // 10, "publisher_total": state.get("publisher_total"),
+                "indexed_pages": len(state.get("indexed_page_numbers", [])),
+                "expected_pages": state.get("expected_pages", 0), "checked_at": state.get("published_at") or state.get("checked_at")}
+        except STORAGE_ERRORS as exc:
+            raise StorageUnavailable() from exc
+
 
 class RunSession:
     def __init__(self, store, name, owner):
@@ -313,6 +377,15 @@ class RunSession:
                 tx.set(ref, {"id": lesson_id, "canonical_url": canonical, "payload_json": encoded,
                     "article": payload["article"], "processing_status": payload["processing"]["status"],
                     "created_at": now, "updated_at": now})
+            # New manual/scheduled lessons join the same historical catalog.
+            from app.services.series import issue_date_from_url
+            day = issue_date_from_url(canonical)
+            title = result.article.title or ""
+            if day and SERIES_TITLE.match(title):
+                tx.set(self.store.collection("archive").document(identifier(canonical)), {
+                    "canonical_url": canonical, "article_url": canonical,
+                    "title": title, "expression": SERIES_TITLE.sub("", title).strip(),
+                    "issue_date": day.isoformat(), "updated_at": datetime.now(timezone.utc)})
             tx.update(self.queue(url), {"state": "succeeded", "error_code": None, "lesson_id": lesson_id})
             return not existing.exists
         return await self.transaction(operation)

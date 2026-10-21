@@ -13,7 +13,7 @@ from app.services.saved import process_and_store
 
 
 def issue_date_from_url(url):
-    match = re.fullmatch(r"/national/nie/english/(\d{4})/(\d{2})/(\d{2})/[^/]+/?", urlsplit(str(url)).path)
+    match = re.fullmatch(r"/national/nie/(?:english/)?(\d{4})/(\d{2})/(\d{2})/[^/]+/?", urlsplit(str(url)).path)
     if match:
         try:
             return date(*map(int, match.groups()))

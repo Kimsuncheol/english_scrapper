@@ -180,13 +180,13 @@ Only titles beginning with `스피킹이 강해지는 영어` and approved artic
 never executed. A local live discovery check found 20 matching listed links;
 this does not prove future coverage or that OCR worked on those articles.
 
-The section is a rolling listing, not a historical archive API. Initial enabling
+Daily discovery reads the newest listing only. Initial enabling
 can discover earlier listed lessons; five are processed per day by default, with
 remaining URLs queued persistently. Unprocessed articles in the current publisher
 listing are attempted in listing order before older queued URLs, so a newly listed
 lesson is not held behind a historical backlog. If discovery fails, the stored
-backlog remains available for retry. New/missed articles that have already rolled
-off the listing cannot be recovered automatically. Empty discovery may mean no
+backlog remains available for retry. The separate historical archive indexer below reads all publisher pagination pages,
+including older articles outside this newest listing. Empty discovery may mean no
 matching entries; monitor the persisted `discovered` count if it stays zero.
 Challenge/error pages are recorded as failures instead of bypassed.
 
@@ -585,8 +585,7 @@ is saved in Firestore, and appears on the page. A known latest article is return
 without another image download or OCR run. **Refresh saved expressions** reloads
 the cards without contacting Chosun, including results saved by a daily job.
 Manual URL submissions refresh these lessons too. The check also lists dates
-currently present in the publisher's tag feed. Choose one under **Older days
-currently listed by Chosun** and press **Load selected day** to OCR/save an unsaved
+currently present in the publisher's newest tag feed. Choose one under **Quick selection from the newest publisher page** and press **Load selected day** to OCR/save an unsaved
 day or retrieve its existing full result. The selected day is retained in the UI
 even when it is an older cached result outside page one. A selected day uses the
 same URL validation, locking and persistence pipeline as a manual submission.
@@ -594,12 +593,10 @@ same URL validation, locking and persistence pipeline as a manual submission.
 “New” means **new to this scraper**, not proof that an article was published since
 your previous visit. The first check can import an existing latest article. A check
 processes only the newest listed lesson. Other listed days can be loaded
-individually; already saved history is browsable through pagination. The publisher
-feed is a rolling list, not a complete historical archive. A day no longer listed
-can still be loaded through the manual URL form if you have its real article URL;
-the application never guesses dates/IDs or claims every historical article has
-already been imported. Empty
-listings and upstream errors are shown explicitly rather than called “up to date”.
+individually; the complete historical catalog is available through the archive
+browser described below. Catalog indexing and full image OCR are separate:
+indexing all titles does not claim all lesson images have already been OCR-processed.
+Empty listings and upstream errors are shown explicitly rather than called “up to date”.
 Raw OCR is preserved even when an expression could not be classified reliably.
 
 Successful discovery is cached for 60 seconds **per process**; the UI shows the
@@ -1722,3 +1719,87 @@ Still unverified or limited:
   No missing text, translation, or dialogue alignment is invented.
 - The API has concurrency protection but no per-client request quota. OCR/model
   state is process-local and not shared between multiple workers or instances.
+
+
+### Complete historical expression archive
+
+**All daily expressions · January 2021 onwards** lists the publisher's historical
+series entries, including unsaved lessons. Use **First / Previous / Next / Last
+page**, enter a page number (for example **143**), or **Find a lesson date** such
+as **2021-01-01**. Every row shows the issue date and the expression from the
+publisher's title. **Open full lesson** calls the same safe, idempotent image/OCR
+pipeline as manual scraping and displays the full saved lesson below the archive.
+An unsaved day takes longer; a saved day reuses its persisted OCR result.
+Titles are explicitly labeled as publisher metadata, independently of OCR
+classification confidence. Missing dates are not invented: only publisher-listed
+articles appear, rather than one fabricated entry for every calendar day.
+
+The Chosun page's `?page=143` URL **does not paginate the server-rendered HTML**;
+it can still contain page-one data. The publisher's own pagination JavaScript
+uses the public `/pf/api/v3/content/fetch/story-feed` endpoint with the tag slug,
+`size=10`, and an `offset`. The indexer reads that JSON through the existing
+bounded HTTPS fetcher (public DNS pinning, redirects revalidated, connect/read/
+total timeouts, 2 MiB cap). It never executes JavaScript or guesses article URLs.
+On October 21, 2026 the publisher reported **1,425 lessons across 143 pages**;
+page 143 includes **January 1, 2021**. Some historical entries use
+`/national/nie/YYYY/MM/DD/` instead of `/national/nie/english/YYYY/MM/DD/`;
+both observed paths are retained and sorted by issue date.
+
+Populate or refresh the full catalog from a trusted local terminal, with the
+same server-side Firestore credentials used by the application:
+
+```sh
+export FIREBASE_PROJECT_ID=english-scrapper
+export GOOGLE_APPLICATION_CREDENTIALS="$PWD/secrets/english-scrapper-service-account.json"
+.venv/bin/python -m scripts.index_archive
+# After an interrupted initial import, skip pages already committed:
+.venv/bin/python -m scripts.index_archive --resume
+```
+
+The default command refreshes **every page**. Use `--resume` only to finish an
+interrupted import: offsets shift when new articles are published, so a later
+full refresh should not skip earlier pages. Each source page commits atomically into
+`chosun_archive` (canonical-URL keys) and `chosun_archive_state` (page checkpoints,
+source count, last index timestamp). After the full import, an atomic transaction
+publishes metadata page snapshots in `chosun_archive_pages`; the UI never shows
+a partly rebuilt snapshot as a complete catalog. Replays are idempotent; older entries are
+retained. A renewable database lease prevents concurrent archive imports across
+instances. Calls are sequential with a one-second gap; transient network/5xx
+failures retry at most three attempts with exponential delays. Blocked responses
+stop immediately. Successful pages survive an interruption and filesystem loss.
+The progress counts remain visible on the site even after a partial import.
+
+The indexer runs outside the sleeping Render Free web service. It needs no paid
+worker, runtime model downloads, or persistent disk. It indexes metadata only,
+so it does not start Tesseract or download 1,425 lesson images. A full refresh
+currently writes roughly 1,425 catalog records plus 143 checkpoint updates and 143 page snapshots;
+account for Firestore read/write quotas before repeatedly rebuilding it. Normal
+browsing returns ten entries using two Firestore document reads (state and page),
+including direct jumps to page 143; it avoids expensive skipped-document offset
+reads. Publishing loads the small metadata catalog once in the operator process
+and writes one snapshot document per page. Full OCR runs only when a day is
+opened. Newly saved series lessons from manual/daily processing also join the
+catalog and exact-date lookup immediately; the paginated archive is a dated
+snapshot, refreshed by rerunning the full indexer. This also catches other missed
+historical days.
+The existing protected external daily job remains responsible for unattended
+new-lesson processing; enabling the archive does not enable an unreliable
+in-process timer on Render Free.
+
+The read-only archive API is development-only like the site itself:
+
+```sh
+curl 'http://127.0.0.1:8765/_dev/test-site/series/archive?page=143'
+curl 'http://127.0.0.1:8765/_dev/test-site/series/archive?day=2021-01-01'
+```
+
+It returns explicit metadata models, indexed/source counts and page state.
+There is no unauthenticated bulk-import HTTP endpoint. `ENABLE_TEST_SITE=false`
+(the default) removes this route as well as the rest of the development UI.
+
+Archive tests use short original JSON fixtures for pages 1 and 143, exercise
+all 143 pages/1,425 distinct URLs deterministically, and mock external HTTP/OCR.
+The Firestore emulator test verifies committed page replay, persistence across
+repository instances, pagination and exact-date lookup. Run the ordinary suite
+with `ENABLE_TEST_SITE=false SCRAPE_ENABLED=false .venv/bin/python -m pytest -q`;
+set the loopback `FIRESTORE_EMULATOR_HOST` as documented above to include SDK tests.

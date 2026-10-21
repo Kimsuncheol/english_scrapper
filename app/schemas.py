@@ -232,3 +232,21 @@ class SeriesCheckResponse(BaseModel):
     listed_count: int = Field(ge=0)
     latest: SeriesExpression | None = None
     listed_days: list[SeriesListedDay] = Field(default_factory=list)
+
+
+class ArchiveEntry(BaseModel):
+    article_url: HttpUrl
+    title: str
+    expression: str
+    issue_date: date
+
+
+class ArchivePage(BaseModel):
+    items: list[ArchiveEntry]
+    total: int = Field(ge=0)
+    page: int = Field(ge=1)
+    pages: int = Field(ge=0)
+    publisher_total: int | None = None
+    indexed_pages: int = 0
+    expected_pages: int = 0
+    checked_at: datetime | None = None
