@@ -401,6 +401,14 @@ status and Content-Type before decoding JSON after a Render cold start.
 
 ## Local fixture test website
 
+Choose the workflow you need:
+
+| Goal | Instructions |
+| --- | --- |
+| Browse fixture articles and parser output | Start the development server below with `ENABLE_TEST_SITE=true`, then open the fixture index |
+| Exercise the complete fixture scrape with mocked OCR | Run the [end-to-end fixture test](#end-to-end-fixture-pipeline-test); no listening server is needed |
+| Test the production API with development routes disabled | Use the [production test commands](#production-safeguards-and-test-commands) with `ENABLE_TEST_SITE=false` |
+
 The existing FastAPI app includes an opt-in, offline parser playground. Set
 **`ENABLE_TEST_SITE=true` before starting the app** to register its routes.
 The default is false, and `.env.example` is documentation only: dotenv files are
@@ -474,6 +482,23 @@ the distinct `no_lesson_image` / `invalid_article_data` processing errors.
 Do not substitute the fixtures' synthetic `https://www.chosun.com/test-fixtures/…`
 canonical URLs in curl: outside pytest they are treated as real publisher URLs,
 not redirected to the local fixture server.
+
+To check hostname rejection separately from the HTTP-scheme check, use this
+single request. The API receives the POST over local HTTP, but the submitted
+article URL uses HTTPS and is still rejected because its hostname is localhost:
+
+```sh
+curl --include --show-error \
+  --request POST http://127.0.0.1:8000/api/v1/scrape \
+  --header 'Content-Type: application/json' \
+  --data '{"article_url":"https://localhost/_dev/test-site/articles/thumbnail-and-tall"}'
+# Expected: HTTP 422; error.code is "validation_error".
+```
+
+URL validation happens before any fixture fetching or OCR. There is no HTTPS
+connection to the submitted localhost URL, and no database configuration is
+needed for these rejected requests. Browsing the same fixture directly with GET
+returns HTTP 200 HTML; it does not submit it to the scrape pipeline.
 
 No Chosun requests, database access, OCR initialization or runtime file generation
 are needed to browse this site. The Chosun-shaped canonical URLs and `example.test`
@@ -558,6 +583,28 @@ production process should return 404 for `/_dev/test-site/` and its assets. Loca
 URL fetching must remain forbidden regardless of that flag. The transport and
 extra fixture-image namespace exist only in pytest; do not copy them into the
 deployed app or broaden its host/IP allowlists to make fixture curl requests pass.
+
+For a local smoke check of production route visibility, stop the development
+server, then restart on the same port without `--reload` and with test routes
+explicitly disabled:
+
+```sh
+ENABLE_TEST_SITE=false SCRAPE_ENABLED=false SCRAPE_IN_PROCESS=false \
+  .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+In another terminal:
+
+```sh
+curl --fail --show-error http://127.0.0.1:8000/health
+# Expected: {"status":"ok"}
+curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' \
+  http://127.0.0.1:8000/_dev/test-site/
+# Expected: 404
+```
+
+This check needs neither database connectivity nor OCR models. It verifies the
+local app configuration, not a Render deployment.
 
 Run the full suite with production defaults and without inheriting live database
 credentials:
@@ -1029,6 +1076,7 @@ app/
   main.py              # ASGI app and shared exception handlers
   api.py               # Thin HTTP routes
   schemas.py           # Request, article, image, OCR, and error contracts
+  dev_site/            # Opt-in local HTML/PNG fixtures; absent from production routes
   services/
     scrape.py          # Fetch/parse/download/OCR orchestration
     article.py         # Bounded async HTML fetching and article checks
@@ -1053,6 +1101,9 @@ tests/
   test_images.py
   test_ocr.py
   test_lesson.py
+  test_dev_site.py
+  test_local_fixture_e2e.py
+  test_synthetic_lesson.py
   test_daily.py
   test_daily_postgres.py
   test_saved_api.py
