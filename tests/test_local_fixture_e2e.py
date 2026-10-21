@@ -76,7 +76,7 @@ class FixtureTransport(httpx.AsyncBaseTransport):
 def local_pipeline(monkeypatch, tmp_path):
     monkeypatch.setenv("SCRAPE_ENABLED", "false")
     monkeypatch.setenv("SCRAPE_IN_PROCESS", "false")
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("FIREBASE_PROJECT_ID", raising=False)
     missing_models = tmp_path / "models-not-installed"
     monkeypatch.setenv("TESSDATA_PREFIX", str(missing_models))
     monkeypatch.setenv("ENABLE_TEST_SITE", "true")

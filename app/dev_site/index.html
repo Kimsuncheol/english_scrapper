@@ -11,7 +11,7 @@
 <label for="article-url">Article URL</label>
 <div class="scrape-controls"><input id="article-url" name="article_url" type="url" placeholder="https://www.chosun.com/national/nie/english/…" required><button id="scrape-submit" type="submit">Scrape article</button></div>
 </form>
-<p class="muted">Requires DATABASE_URL and installed Korean/English OCR models on the server. Local fixture URLs are rejected by the API.</p>
+<p class="muted">Requires FIREBASE_PROJECT_ID and installed Korean/English OCR models on the server. Local fixture URLs are rejected by the API.</p>
 <p id="scrape-status" role="status" aria-live="polite"></p>
 <pre id="scrape-result" aria-label="Scrape API response" hidden></pre>
 <noscript>Enable JavaScript to submit an article URL.</noscript>

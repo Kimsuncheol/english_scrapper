@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 import os
-from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 
@@ -14,7 +13,8 @@ class DailyConfig:
     timezone: str = "Asia/Seoul"
     hour: int = 6
     minute: int = 0
-    database_url: str = ""
+    firebase_project_id: str = ""
+    firestore_database: str = "(default)"
     trigger_token: str = ""
     max_articles: int = 5
     retry_attempts: int = 3
@@ -25,10 +25,10 @@ class DailyConfig:
         ZoneInfo(self.timezone)
         if not 0 <= self.hour <= 23 or not 0 <= self.minute <= 59:
             raise ValueError("SCRAPE_HOUR must be 0..23 and SCRAPE_MINUTE 0..59")
-        if self.enabled and not self.database_url:
-            raise ValueError("SCRAPE_ENABLED requires a persistent PostgreSQL DATABASE_URL")
-        if self.database_url and urlsplit(self.database_url).scheme not in {"postgres", "postgresql"}:
-            raise ValueError("DATABASE_URL must use PostgreSQL; local SQLite is not supported")
+        if self.enabled and not self.firebase_project_id:
+            raise ValueError("SCRAPE_ENABLED requires FIREBASE_PROJECT_ID for persistent Firestore storage")
+        if "/" in self.firestore_database or not self.firestore_database:
+            raise ValueError("FIRESTORE_DATABASE must be a database ID")
         if not 1 <= self.max_articles <= 20 or not 1 <= self.retry_attempts <= 5:
             raise ValueError("Daily article/retry limits are outside supported bounds")
         if not 0 <= self.retry_base_seconds <= 30 or not 0 <= self.request_gap_seconds <= 60:
@@ -45,7 +45,8 @@ class DailyConfig:
         return cls(enabled=flag == "true", timezone=os.getenv("SCRAPE_TIMEZONE", "Asia/Seoul"),
             in_process=timer == "true",
             hour=int(os.getenv("SCRAPE_HOUR", "6")), minute=int(os.getenv("SCRAPE_MINUTE", "0")),
-            database_url=os.getenv("DATABASE_URL", ""), trigger_token=os.getenv("SCRAPE_TRIGGER_TOKEN", ""),
+            firebase_project_id=os.getenv("FIREBASE_PROJECT_ID", ""),
+            firestore_database=os.getenv("FIRESTORE_DATABASE", "(default)"), trigger_token=os.getenv("SCRAPE_TRIGGER_TOKEN", ""),
             max_articles=int(os.getenv("SCRAPE_DAILY_MAX_ARTICLES", "5")),
             retry_attempts=int(os.getenv("SCRAPE_RETRY_ATTEMPTS", "3")),
             retry_base_seconds=float(os.getenv("SCRAPE_RETRY_BASE_SECONDS", "2")),

@@ -2,13 +2,11 @@
 
 import logging
 
-import psycopg
-
 from app.schemas import SavedLessonResponse
 from app.services import scrape as scrape_service
 from app.services.discovery import stable_url
 from app.services.errors import ArticleFetchError
-from app.services.storage import StorageUnavailable
+from app.services.storage import STORAGE_ERRORS, StorageUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +37,17 @@ async def process_and_store(store, article_url, scrape=None) -> tuple[SavedLesso
             except Exception:
                 await session.failed(url, "processing_failed")
                 raise
-            created = await session.save(url, result)
+            try:
+                created = await session.save(url, result)
+            except ArticleFetchError as exc:
+                # Persist storage-size failures as retryable queue records too.
+                await session.failed(url, exc.code)
+                raise
             saved = await session.cached(url)
             return SavedLessonResponse.model_validate(saved), created
     except ArticleFetchError:
         raise
-    except (psycopg.Error, OSError) as exc:
+    except STORAGE_ERRORS as exc:
         raise StorageUnavailable() from exc
     except Exception as exc:
         logger.error("Article persistence/processing failed (%s)", type(exc).__name__)

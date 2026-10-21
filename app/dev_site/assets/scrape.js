@@ -27,12 +27,12 @@ form.addEventListener("submit", async (event) => {
       status.className = "error";
       status.textContent = `HTTP ${response.status}: ${payload.error?.message || "Scrape failed."}`;
       if (payload.error?.code === "storage_unavailable") {
-        status.textContent += " Configure DATABASE_URL and ensure PostgreSQL is available.";
+        status.textContent += " Configure FIREBASE_PROJECT_ID and ensure Firestore credentials are configured.";
       }
       return;
     }
     status.className = "success";
-    const expression = payload.lesson?.expression?.text;
+    const expression = payload.lesson?.fields?.expression?.text;
     status.textContent = `HTTP ${response.status} · Processing: ${payload.processing?.status || "complete"}`
       + (expression ? ` · Expression: ${expression}` : " · No expression was reliably classified; review raw OCR below.");
   } catch {

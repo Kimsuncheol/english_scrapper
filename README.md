@@ -6,7 +6,7 @@ in memory. Tesseract recognizes Korean and English text and returns word regions
 with confidence and pixel bounding boxes. A conservative layout parser organizes
 supported labeled sections into lesson fields. No request files are written at runtime.
 Manual and scheduled scraping use the same processing/persistence service.
-Results are saved in external PostgreSQL and can be retrieved through the API.
+Results are saved in Cloud Firestore and can be retrieved through the API.
 
 The lesson graphic is a raster image: this service locates and downloads it,
 then recognizes its pixels with OCR. It does **not** extract the graphic as
@@ -15,9 +15,9 @@ data, while lesson text is an OCR estimate that can contain errors.
 
 ## Saved article API
 
-Configure `DATABASE_URL` even when `SCRAPE_ENABLED=false` if using manual
+Configure `FIREBASE_PROJECT_ID` and server credentials even when `SCRAPE_ENABLED=false` if using manual
 scraping. There is no ephemeral/local storage fallback. `/health` does not need
-PostgreSQL or OCR initialization.
+Firestore or OCR initialization.
 
 | Endpoint | Response |
 | --- | --- |
@@ -27,7 +27,7 @@ PostgreSQL or OCR initialization.
 | `GET /api/v1/articles/{article_id}` | `{id, canonical_url, payload, created_at, updated_at}`; `payload` includes image metadata, OCR regions/raw text, structured lesson fields and processing status |
 
 Manual and scheduled requests call the same fetch → parse → image download → OCR
-→ lesson parsing pipeline and persistence service. PostgreSQL article locks stop
+→ lesson parsing pipeline and persistence service. Firestore transactional article leases stop
 overlapping work for the same normalized URL. Known successful duplicates return
 the first saved response with `200`, without another download or OCR call. The
 canonical URL is unique across all saved results; an unseen alias may need one
@@ -53,8 +53,8 @@ curl --fail "$BASE_URL/api/v1/articles/ARTICLE_ID"
 
 Pagination uses `limit` (1–100, default 20) and `offset` (nonnegative, default 0).
 Results are ordered by creation time descending, with ID as the tie-breaker. Each
-page's total/items use a consistent database snapshot; newly added records between
-requests can shift offsets. No saved records returns `200` with an empty `items`
+page's total and items are separate Firestore reads; concurrent inserts may
+change the count or shift offsets between reads. No saved records returns `200` with an empty `items`
 array and `total: 0`.
 
 The existing `/jobs/daily`, `/lessons`, and `/lessons/{lesson_id}` routes remain
@@ -67,7 +67,7 @@ controls before exposing an unrestricted OCR submission service.
 ## Optional daily scrape workflow
 
 Before the daily workflow, the repository had no database or persistent storage.
-Both manual and scheduled processing now use PostgreSQL persistence;
+Both manual and scheduled processing now use Cloud Firestore persistence;
 there is deliberately **no SQLite/local-file fallback** on Render Free. Models
 remain Docker image contents; request images are never saved to disk.
 
@@ -83,25 +83,90 @@ which is documentation only; the app does not automatically load dotenv files):
 | `SCRAPE_TIMEZONE` | `Asia/Seoul` | IANA schedule timezone |
 | `SCRAPE_HOUR` | `6` | Local hour, 0–23 |
 | `SCRAPE_MINUTE` | `0` | Local minute, 0–59 |
-| `DATABASE_URL` | unset | Persistent PostgreSQL URL; required for manual scraping, saved results, and enabled scheduling |
+| `FIREBASE_PROJECT_ID` | unset | Firebase project ID; required for scraping, saved results, and enabled scheduling |
+| `FIRESTORE_DATABASE` | `(default)` | Firestore database ID |
+| `GOOGLE_APPLICATION_CREDENTIALS` | unset | Server-only service-account JSON path (or another ADC source) |
 | `SCRAPE_TRIGGER_TOKEN` | unset | Secret Bearer token for external triggers |
 | `SCRAPE_DAILY_MAX_ARTICLES` | `5` | Maximum queued articles attempted in one daily batch, supported range 1–20 |
 | `SCRAPE_RETRY_ATTEMPTS` | `3` | Total attempts per transient operation, supported range 1–5 |
 | `SCRAPE_RETRY_BASE_SECONDS` | `2` | Exponential backoff base; delays cap at 20 seconds plus up to 10% jitter |
 | `SCRAPE_REQUEST_GAP_SECONDS` | `2` | Pause between article processing attempts/batches |
 
-Only PostgreSQL URLs are accepted. Remote connections default to TLS if no
-`sslmode` was supplied; use your provider's recommended certificate validation
-(e.g. `sslmode=verify-full`) where available. Supply a **direct connection or
-session-pooling endpoint**, never a transaction-pooling/PgBouncer transaction URL:
-the session-level advisory lock must stay on the same backend connection for the
-entire run. Use a dedicated database/schema and a role that can create the three
-application tables on initial use. Secrets belong in deployment settings, not Git.
+### Firebase / Cloud Firestore setup
 
-No database is created or purchased by `render.yaml`. Choose a durable external
-PostgreSQL service and its retention/backup plan explicitly. Render's Free
-Postgres expires after 30 days, so it is not a long-term archive by itself.
-[Render Free database limitations](https://render.com/docs/free).
+This checkout is configured for Firebase project **`english-scrapper`**. The
+Standard `(default)` database is in **Seoul (`asia-northeast3`)**. The backend
+service account is `lesson-scraper@english-scrapper.iam.gserviceaccount.com`, with
+`roles/datastore.user`. Its local key is in the ignored `secrets/` directory;
+never commit or paste its contents into a chat. `.firebaserc` selects this project
+for Firebase CLI commands. Other global Google Cloud project settings are unchanged.
+
+Start the connected local test website with:
+
+```sh
+sh scripts/start-local.sh
+# Open http://127.0.0.1:8765/_dev/test-site/
+```
+
+This local-only script sets the project, credential path, and development route
+flag; scheduling remains off. It uses installed `.ocr-models` if present and
+accepts environment overrides (`LOCAL_PORT`, `FIREBASE_PROJECT_ID`,
+`GOOGLE_APPLICATION_CREDENTIALS`, `TESSDATA_PREFIX`, `ENABLE_TEST_SITE`).
+Render uses its separate production start script. For Render, mount the same
+service-account key privately as `/etc/secrets/service-account.json`; the Blueprint
+already specifies the project ID and credential path. The secret itself is not
+in Git or the container image.
+
+
+1. In the [Firebase console](https://console.firebase.google.com/), select/create
+   your project. Under **Build → Firestore Database**, create a **Standard edition**
+   database in Native mode, ID `(default)`, in a suitable region. Use production
+   security rules; the browser never accesses Firestore directly.
+2. Set `FIREBASE_PROJECT_ID` to its project ID. `FIRESTORE_DATABASE` defaults to
+   `(default)`. The Python backend uses the official async `google-cloud-firestore`
+   server client; Firebase Auth, Hosting, Storage, and a browser Firebase API key
+   are not required for this change.
+3. Give a dedicated backend service account the **Cloud Datastore User** IAM role
+   (`roles/datastore.user`) on this project. Supply Application Default Credentials
+   (ADC). For local development, keep its JSON key outside the repository and set
+   `GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account.json`.
+   Never paste the key into HTML, JavaScript, logs, or source control. The ignored
+   `secrets/` directory is also excluded from Docker builds.
+4. Using an authenticated Firebase CLI, deploy the included rules/indexes to your
+   selected database: `firebase deploy --only firestore --project YOUR_PROJECT_ID`.
+   This is an explicit setup action, not an application startup operation. The
+   configuration targets `(default)`; for a different database, configure the CLI
+   database target as well. Wait for indexes to finish building before live use.
+   `firestore.rules` denies browser/mobile reads and writes. Server clients use
+   IAM and bypass these rules, so keep the service account private.
+5. On Render, add **Environment → Secret Files → Add Secret File**, name it
+   `service-account.json`, and paste the JSON privately. Set
+   `GOOGLE_APPLICATION_CREDENTIALS=/etc/secrets/service-account.json`,
+   `FIREBASE_PROJECT_ID`, and optionally `FIRESTORE_DATABASE` in Environment.
+   Keep `FIRESTORE_EMULATOR_HOST` **unset** in production. The Docker image uses
+   one Uvicorn worker and needs no local database, persistent disk, or paid worker.
+
+No Firebase project/database, IAM grant, key, or hosted deployment is created by
+this repository. Existing PostgreSQL records are not automatically migrated;
+retain any old database/exports until a separate data migration is verified.
+`DATABASE_URL` is no longer read. Request images remain in memory.
+
+Firestore stores the complete OCR payload as a JSON string in `payload_json`,
+then returns the original typed JSON through the API. This preserves nested OCR
+arrays and avoids indexing raw OCR. `firestore.indexes.json` includes the queue
+indexes and payload/article index exemptions; the app does not create indexes.
+Results larger than 800,000 UTF-8 JSON bytes return `413 result_too_large` and
+are recorded as failures, leaving room below Firestore's 1 MiB document limit.
+No image bytes are saved in Firestore or Firebase Storage.
+
+The default Firestore database has limited free storage and operation quotas;
+transactions, retries, lock heartbeats, aggregation queries, and offset pagination
+consume operations. Daily scraping is small by default, but this is not a promise
+of zero cost. Deep offsets and unbounded public requests can increase usage;
+monitor the Firebase usage dashboard. No paid TTL cleanup is required for locks.
+See [Firestore limits](https://firebase.google.com/docs/firestore/quotas),
+[server security](https://firebase.google.com/docs/firestore/security/overview),
+and [index configuration](https://firebase.google.com/docs/firestore/query-data/index-overview).
 
 ### Discovery and retained results
 
@@ -125,13 +190,13 @@ off the listing cannot be recovered automatically. Empty discovery may mean no
 matching entries; monitor the persisted `discovered` count if it stays zero.
 Challenge/error pages are recorded as failures instead of bypassed.
 
-The job creates idempotent tables on first database use:
+The job creates documents lazily in these Firestore collections:
 
-- `daily_runs`: one local scheduled-date key, start/finish timestamps, attempts,
+- `chosun_runs`: one local scheduled-date key, start/finish timestamps, attempts,
   status, counts and concise error code.
-- `daily_articles`: normalized article URL, pending/processing/failed/succeeded
+- `chosun_queue`: normalized article URL, pending/processing/failed/succeeded
   state, attempts, last-attempt timestamp, error code and saved-lesson ID.
-- `saved_lessons`: stable ID, unique canonical URL, complete `ScrapeResponse` JSON,
+- `chosun_lessons`: stable ID, unique canonical URL, complete `ScrapeResponse` JSON,
   and creation/update timestamps. This includes article metadata, original/final
   image URLs and dimensions, raw OCR text/regions, structured fields and processing
   status; it excludes HTML and image bytes.
@@ -145,14 +210,22 @@ its existing `ScrapeResponse` body, with a `Location` header for the saved recor
 
 ### Locking, failures and catch-up
 
-Every runner must acquire a **PostgreSQL session advisory lock** before discovery
-or processing; a unique scheduled-date row adds durable daily idempotency. This
-protects against overlapping deploys, external triggers, and multiple FastAPI
-instances. The lock uses a dedicated live connection and is released when the
-connection closes, including process exit. All instances should use the same
-schedule configuration/database. Keep Render Free at one worker/instance; the
-cross-instance database guard is not a reason to increase OCR memory use.
-[PostgreSQL advisory locks](https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-ADVISORY-LOCKS).
+Every runner acquires a **Firestore transaction-backed lease** before discovery
+or processing. `chosun_locks/daily` prevents overlapping daily runs, while
+per-normalized-URL leases prevent simultaneous manual/scheduled work. Each lease
+has a random owner token, a 120-second expiry, and a 30-second heartbeat. Every
+session mutation checks ownership and expiry in its transaction; a stale owner
+cannot save results or remove a successor's lock. A unique scheduled-date document
+adds durable daily idempotency. Canonical results use deterministic document IDs;
+a transaction atomically saves the first result and maps the submitted alias.
+
+On process exit, normal cleanup releases owned leases. After a crash or sleeping
+process, a new invocation can reclaim an expired lease; recovery may wait up to
+120 seconds, then the external scheduler must retry. An expired owner receives
+`503 storage_lock_lost`. All instances must use the same Firebase project/database
+and schedule. Keep Render Free at one worker/instance for OCR memory limits.
+Network/OCR work happens outside Firestore transactions; transaction retries never
+repeat OCR. [Firestore transactions](https://firebase.google.com/docs/firestore/manage-data/transactions).
 
 Transient connection/read failures, upstream 5xx responses, and temporary busy
 responses get bounded exponential retries. Upstream 404, invalid inputs, image
@@ -166,8 +239,8 @@ restarts. A terminal daily run is not repeated on the same local date; a crashed
 
 Like other crash-recoverable jobs, this is at-least-once work with idempotent
 saved results: a crash between OCR and the database commit can repeat a download
-or OCR, but cannot create another canonical saved lesson. A database connection
-loss aborts further work on that session. No local filesystem lock is used.
+or OCR, but cannot create another canonical saved lesson. A lost or expired lease
+blocks further writes on that session. No local filesystem lock is used.
 
 The default deployment starts **no in-process timer**, even when
 `SCRAPE_ENABLED=true`. An external scheduler owns the daily clock and invokes the
@@ -194,15 +267,15 @@ Official Render documentation checked **2026-10-21**:
   appropriate durable storage plan. [Free datastore limits](https://render.com/docs/free).
 
 Therefore the Free deployment uses the included **GitHub Actions daily workflow**
-and external PostgreSQL, with no paid always-on worker or Render Cron resource.
+and Cloud Firestore, with no paid always-on worker or Render Cron resource.
 The workflow invokes `scripts/trigger_daily.py` once per day at the default
 `06:00 Asia/Seoul`. That client wakes the service, authenticates the trigger, and
 polls the saved job state every 30 seconds during the active batch. It re-submits
 the idempotent trigger while unfinished so a restarted FastAPI process can resume
 without a local timer. It sends no keep-alive pings between daily batches.
 
-1. Provision/select durable PostgreSQL. In Render Environment set `DATABASE_URL`
-   to a direct/session connection URL, and set a strong `SCRAPE_TRIGGER_TOKEN`
+1. Configure Firestore and server ADC credentials as above. In Render Environment
+   set `FIREBASE_PROJECT_ID` and a strong `SCRAPE_TRIGGER_TOKEN`
    (for example generate one locally with `python -c 'import secrets; print(secrets.token_urlsafe(32))'`).
 2. Set Render `SCRAPE_ENABLED=true` and review timezone/hour/minute. The Blueprint
    deliberately defaults it to false. Keep **`SCRAPE_IN_PROCESS=false`**.
@@ -276,13 +349,13 @@ does not provide restart recovery. No Render API key is needed by this design.
 
 ### Local schedule and API usage
 
-Create a **local development PostgreSQL database** or use a separate hosted dev
-DB, install `requirements.txt`, then export environment variables in the terminal
-that starts Uvicorn. This example uses a local development connection; replace it
-with a database you created and can access:
+Configure a separate development Firebase project and server ADC credentials,
+install `requirements.txt`, then export environment variables in the terminal
+that starts Uvicorn (or use the loopback emulator described below):
 
 ```sh
-export DATABASE_URL='postgresql://localhost/english_scrapper'
+export FIREBASE_PROJECT_ID='your-dev-project-id'
+export GOOGLE_APPLICATION_CREDENTIALS='/absolute/path/to/service-account.json'
 export SCRAPE_ENABLED=true
 # Optional local convenience only; keep false for external scheduling/Render.
 export SCRAPE_IN_PROCESS=true
@@ -297,9 +370,9 @@ export SCRAPE_TRIGGER_TOKEN="$(python3 -c 'import secrets; print(secrets.token_u
 Keep this process running for the opt-in local timer. Starting after the due time can
 immediately discover/process the rolling backlog. Leave `SCRAPE_ENABLED=false`
 to disable scheduling during development. Manual processing still needs
-`DATABASE_URL`. Without it, `/health` and disabled job status work, while manual
+`FIREBASE_PROJECT_ID` and valid credentials. Without them, `/health` and disabled job status work, while manual
 scraping and saved-result routes return `503 storage_unavailable`.
-The schema is initialized automatically on first daily/status/result database use.
+Collections are written lazily on first use; indexes/rules must be deployed beforehand.
 
 ```sh
 curl --fail http://127.0.0.1:8000/api/v1/jobs/daily
@@ -331,20 +404,40 @@ export SCRAPE_BASE_URL='https://YOUR-SERVICE.onrender.com'
 ### Tests for daily processing
 
 ```sh
-.venv/bin/python -m pytest -q
-# Optional: use an isolated test database, NEVER production.
-TEST_DATABASE_URL='postgresql://localhost/english_scrapper_test' \
-  .venv/bin/python -m pytest tests/test_daily_postgres.py -q
+# Unit/API tests do not need Firebase credentials or network access.
+env -u FIREBASE_PROJECT_ID -u FIRESTORE_EMULATOR_HOST .venv/bin/python -m pytest -q
+# Emulator integration: install Firebase CLI and its supported Java runtime first.
+# Terminal 1 (demo project; no hosted Firebase writes):
+firebase emulators:start --only firestore --project demo-english-scrapper
+# Terminal 2:
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 \
+  .venv/bin/python -m pytest tests/test_daily_firestore.py -q
 ```
 
-PostgreSQL integration tests create fresh schemas and do not drop/truncate existing
-data. They check the actual session lock, cross-connection exclusion, duplicate
-URLs, interrupted-run recovery, saved JSON surviving a new repository instance,
-and result/status APIs. Without `TEST_DATABASE_URL` those integration tests skip;
-schedule/discovery/retry tests still run using test doubles. Local validation for
-this change used an isolated temporary PostgreSQL 16 cluster plus mocked OCR/HTTP,
-and a separate live series-link discovery check. A production database, GitHub
-workflow, hosted OCR job, and Render deployment remain unconfigured/unverified.
+Integration tests use only a loopback emulator with project `demo-english-scrapper`
+and a fresh collection prefix per test. No existing data is deleted. They check
+real SDK transactions, concurrent manual/scheduled exclusion, canonical uniqueness,
+expired-owner fencing, restart recovery, failure records, and API persistence.
+Without `FIRESTORE_EMULATOR_HOST`, emulator tests skip. The emulator does not enforce
+production composite indexes; deploy the included indexes and verify on your own
+Firebase project before deployment. No hosted Firebase or Render deployment is
+claimed by these checks.
+
+To run the test-site URL form with the emulator, leave it running and start:
+
+```sh
+ENABLE_TEST_SITE=true SCRAPE_ENABLED=false \
+FIREBASE_PROJECT_ID=demo-english-scrapper FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 \
+TESSDATA_PREFIX="$PWD/.ocr-models" \
+  .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Use the model path appropriate to your OCR installation. This form runs real
+publisher fetching and OCR; fixture browsing and mocked tests stay offline.
+Emulator data is temporary unless you explicitly export/import it; production
+records must live in hosted Firestore, never the emulator or Render filesystem.
+See the [Firestore emulator guide](https://firebase.google.com/docs/emulator-suite/connect_firestore).
+
 External-client tests use mocked HTTP and a simulated clock to cover loading
 pages, transient failures, authentication/redirect rejection, total retry budget,
 and restart recovery without sleeping or calling Render.
@@ -372,8 +465,9 @@ Then, from the repository root:
 ```sh
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-# Set a durable dev PostgreSQL connection before scraping.
-export DATABASE_URL='postgresql://localhost/english_scrapper'
+# Use a separate development Firebase project and server credentials.
+export FIREBASE_PROJECT_ID='your-dev-project-id'
+export GOOGLE_APPLICATION_CREDENTIALS='/absolute/path/to/service-account.json'
 .venv/bin/python -m uvicorn app.main:app --reload
 ```
 
@@ -434,8 +528,8 @@ The **Scrape a Chosun article** form at the top accepts a live HTTPS Chosun URL
 and calls `POST /api/v1/scrape` on the same server. It displays the expression
 when reliably classified, processing status, and the full JSON response (including
 raw OCR), or the API error. Submitting this form performs real external fetching
-and OCR; the four fixture links remain offline. Configure `DATABASE_URL` to a
-running PostgreSQL database and install the Korean/English OCR models as described
+and OCR; the four fixture links remain offline. Configure `FIREBASE_PROJECT_ID` and server credentials for
+Cloud Firestore and install the Korean/English OCR models as described
 above before submitting. For locally provisioned models, also set
 `TESSDATA_PREFIX="$PWD/.ocr-models"` when starting the server. Duplicate URLs use
 the existing saved result. The form does not enable local URL fetching or bypass
@@ -550,7 +644,7 @@ test routes disabled. There is no need to enable a running website first. It exe
 the public scrape API, actual fixture-site HTML routes, article fetching/parsing,
 the original PNG file, real MIME/byte decoding, mocked OCR, six-field lesson
 post-processing and saved-response retrieval. It requires neither a running
-Uvicorn server nor PostgreSQL nor OCR language models; persistence uses the
+Uvicorn server nor Firestore credentials nor OCR language models; persistence uses the
 existing test double. The OCR text is controlled synthetic output, not an OCR
 accuracy assertion about the image pixels.
 
@@ -577,7 +671,7 @@ a valid article image or OG fallback.
 | --- | --- |
 | Browse/curl the fixture HTML pages | The pure article parser displays metadata and selected-image information. OCR is not invoked. |
 | Run `tests/test_local_fixture_e2e.py` | Real fixture HTML/PNG routes and image validation run. A mocked OCR service receives the validated PNG bytes and returns the fixed original text/boxes in `tests/fixtures/lesson_ocr_original_six_sections.json`. Results use an in-memory persistence double. |
-| Submit an approved real article to the ordinary `/api/v1/scrape` endpoint | Real Korean/English Tesseract OCR runs on the downloaded image; configured language files and persistent PostgreSQL are required. |
+| Submit an approved real article to the ordinary `/api/v1/scrape` endpoint | Real Korean/English Tesseract OCR runs on the downloaded image; configured language files and configured Firestore credentials are required. |
 
 Mocked OCR has deterministic text, confidence and bounding boxes, even if the
 fixture image's visible words differ. It tests pipeline wiring, reading order and
@@ -621,21 +715,21 @@ Run the full suite with production defaults and without inheriting live database
 credentials:
 
 ```sh
-env -u DATABASE_URL -u TEST_DATABASE_URL \
+env -u FIREBASE_PROJECT_ID -u FIRESTORE_EMULATOR_HOST \
   ENABLE_TEST_SITE=false SCRAPE_ENABLED=false SCRAPE_IN_PROCESS=false \
   .venv/bin/python -m pytest -q
 ```
 
 This does not start a listening website. Tests that verify development features
 temporarily opt in within isolated app instances; the production API remains
-covered with local URLs rejected. PostgreSQL integration tests skip without
-`TEST_DATABASE_URL`; enable those only against an isolated test database as
+covered with local URLs rejected. Firestore integration tests skip without
+`FIRESTORE_EMULATOR_HOST`; enable those only against a loopback emulator as
 described in [daily processing tests](#tests-for-daily-processing).
 
 To run only the non-website tests, exclude the two fixture-site test modules:
 
 ```sh
-env -u DATABASE_URL -u TEST_DATABASE_URL \
+env -u FIREBASE_PROJECT_ID -u FIRESTORE_EMULATOR_HOST \
   ENABLE_TEST_SITE=false SCRAPE_ENABLED=false SCRAPE_IN_PROCESS=false \
   .venv/bin/python -m pytest -q \
     --ignore=tests/test_dev_site.py --ignore=tests/test_local_fixture_e2e.py
@@ -1050,7 +1144,7 @@ Local verification provisioned the official small `tessdata_fast` Korean/English
 files once under ignored `.ocr-models/` and set
 `TESSDATA_PREFIX="$PWD/.ocr-models"` before starting Python. This is optional local
 setup, not a runtime model downloader. Render continues to use its build-time
-language packages. Actual unattended runs still need the PostgreSQL URL, enabled
+language packages. Actual unattended runs still need the Firebase project/credentials, enabled
 schedule, trigger secret and external scheduler described above.
 
 ## Image selection
@@ -1098,7 +1192,7 @@ app/
     daily.py           # Daily runner, retries and in-process timer
     saved.py           # Shared idempotent processing and persistence
     discovery.py       # Publisher-listed English-series links
-    storage.py         # PostgreSQL history, queue, results and advisory lock
+    storage.py         # Firestore history, queue, results and transactional leases
     urls.py            # HTTPS article-host policy
     errors.py          # Shared application errors
 .github/workflows/daily-scrape.yml  # External daily wake-up for sleeping Free service
@@ -1116,7 +1210,7 @@ tests/
   test_local_fixture_e2e.py
   test_synthetic_lesson.py
   test_daily.py
-  test_daily_postgres.py
+  test_daily_firestore.py
   test_saved_api.py
   test_trigger_daily.py
 ```
@@ -1125,7 +1219,7 @@ tests/
 
 ```sh
 .venv/bin/python -m pip install -r requirements-dev.txt
-env -u DATABASE_URL -u TEST_DATABASE_URL \
+env -u FIREBASE_PROJECT_ID -u FIRESTORE_EMULATOR_HOST \
   ENABLE_TEST_SITE=false SCRAPE_ENABLED=false SCRAPE_IN_PROCESS=false \
   .venv/bin/python -m pytest -q
 .venv/bin/python -m pip check
@@ -1327,7 +1421,7 @@ runtime. The existing OCR binding needs system libraries and language files that
 `pip install` alone cannot supply. `render.yaml` describes this same Docker
 approach with `plan: free`, `/health`, and conservative environment settings. It
 creates one web service with no disk, provisioned database, separate worker, or
-GPU. Manual/scheduled persistence requires an external PostgreSQL URL. The
+GPU. Manual/scheduled persistence requires external Firestore credentials. The
 optional daily scheduler is disabled in the Blueprint until configured.
 
 ### Python, dependencies and system packages
@@ -1358,8 +1452,8 @@ No image or model is downloaded during service startup or from a health request.
 Application requests download only the submitted article and selected lesson
 image. OCR weights are immutable Docker image contents, not a writable cache.
 Request HTML and image buffers stay in memory and need no persistent filesystem.
-Manual and daily OCR/results are stored in PostgreSQL. Redeploys/restarts can
-discard writable request files safely; PostgreSQL remains the source of saved records.
+Manual and daily OCR/results are stored in Firestore. Redeploys/restarts can
+discard writable request files safely; Firestore remains the source of saved records.
 
 ### Start command and lightweight health
 
@@ -1395,7 +1489,7 @@ while health stays responsive.
 4. Review the proposed `english-scrapper` service: runtime **Docker**, plan
    **Free**, Dockerfile `./Dockerfile`, context `.`, health path `/health`.
    Do not change to a paid instance or add a disk to make the example work.
-5. Confirm the environment values below and configure a durable `DATABASE_URL`
+5. Confirm the environment values below and configure `FIREBASE_PROJECT_ID` and server ADC credentials
    for manual scraping and saved results. For daily scraping, also complete the
    storage/wake-up setup above. No external database is provisioned automatically.
 6. Follow the build/deploy logs. Once live, open the assigned `onrender.com` URL
@@ -1416,8 +1510,9 @@ Use this route **instead of** creating a Blueprint service to avoid duplicates.
    `./Dockerfile` and build context `.` if these fields are shown.
 4. Select **Free** as the instance type. Leave **Docker Command** blank so the
    image's CMD runs. Do not enter a Python build command or pre-deploy command.
-5. In **Environment**, review/add the table's six explicit values. They match
-   Docker/application defaults, so no secret values need to be invented.
+5. In **Environment**, review the defaults below, set `FIREBASE_PROJECT_ID`,
+   and mount the server credential secret file as described in Firebase setup.
+   Configure `SCRAPE_TRIGGER_TOKEN` separately if enabling daily triggers.
 6. Set **Health Check Path** to `/health` under Advanced or the service's
    Settings after creation. Do not attach a persistent disk.
 7. Select **Create Web Service**, watch build/deploy logs, then check `/health`
@@ -1430,12 +1525,14 @@ Use this route **instead of** creating a Blueprint service to avoid duplicates.
 
 The Blueprint sets the following explicitly. The same defaults are already in
 the Docker image/application. Manual scraping and saved results additionally
-require a durable `DATABASE_URL`; no OCR API key is needed. External daily
+require `FIREBASE_PROJECT_ID` and server ADC credentials; no OCR API key is needed. External daily
 triggers also require `SCRAPE_TRIGGER_TOKEN` as described above.
 
 | Variable | Value | Supplied by |
 | --- | --- | --- |
-| `DATABASE_URL` | Durable direct/session PostgreSQL URL | Set privately in Render Environment; required for scraping and saved results |
+| `FIREBASE_PROJECT_ID` | Your Firebase project ID | Render Environment |
+| `FIRESTORE_DATABASE` | `(default)` | Optional Render Environment override |
+| `GOOGLE_APPLICATION_CREDENTIALS` | `/etc/secrets/service-account.json` | Path to privately mounted Render secret file |
 | `PORT` | Render-selected port | Render automatically; leave unset |
 | `TESSDATA_PREFIX` | `/usr/share/tesseract-ocr/5/tessdata` | Docker image and Blueprint |
 | `OMP_THREAD_LIMIT` | `1` | Docker image and Blueprint |

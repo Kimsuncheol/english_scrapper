@@ -1,0 +1,23 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "chosun_queue", "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "state", "order": "ASCENDING"},
+        {"fieldPath": "last_attempt_at", "order": "ASCENDING"},
+        {"fieldPath": "discovered_at", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "chosun_queue", "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "state", "order": "ASCENDING"},
+        {"fieldPath": "last_attempt_at", "order": "DESCENDING"}
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {"collectionGroup": "chosun_lessons", "fieldPath": "payload_json", "indexes": []},
+    {"collectionGroup": "chosun_lessons", "fieldPath": "article", "indexes": []}
+  ]
+}

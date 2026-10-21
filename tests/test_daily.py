@@ -29,12 +29,12 @@ def result(url=ONE):
 
 
 def config(**kwargs):
-    return DailyConfig(enabled=True, database_url="postgresql://localhost/test", request_gap_seconds=0,
+    return DailyConfig(enabled=True, firebase_project_id="demo-test", request_gap_seconds=0,
         retry_base_seconds=0, **kwargs)
 
 
 class MemoryStore:
-    """Test double for runner behavior; PostgreSQL locks have separate real tests."""
+    """Test double for runner behavior; Firestore leases have separate emulator tests."""
     def __init__(self):
         self.locked = False
         self.runs = {}
@@ -144,7 +144,7 @@ def test_schedule_defaults_and_timezone_boundaries(monkeypatch):
     assert DailyConfig.from_env().due_date(datetime(2026, 10, 21, 12, 29, tzinfo=timezone.utc)) is None
 
 
-@pytest.mark.parametrize("name,value", [("SCRAPE_ENABLED", "maybe"), ("SCRAPE_IN_PROCESS", "maybe"), ("SCRAPE_TIMEZONE", "invalid"), ("SCRAPE_HOUR", "24"), ("SCRAPE_MINUTE", "60"), ("DATABASE_URL", "sqlite:///tmp/local.db"), ("SCRAPE_RETRY_ATTEMPTS", "20")])
+@pytest.mark.parametrize("name,value", [("SCRAPE_ENABLED", "maybe"), ("SCRAPE_IN_PROCESS", "maybe"), ("SCRAPE_TIMEZONE", "invalid"), ("SCRAPE_HOUR", "24"), ("SCRAPE_MINUTE", "60"), ("FIRESTORE_DATABASE", "invalid/path"), ("SCRAPE_RETRY_ATTEMPTS", "20")])
 def test_invalid_schedule_config(monkeypatch, name, value):
     monkeypatch.setenv(name, value)
     with pytest.raises((ValueError, KeyError)):
@@ -153,8 +153,8 @@ def test_invalid_schedule_config(monkeypatch, name, value):
 
 def test_enabled_requires_real_storage(monkeypatch):
     monkeypatch.setenv("SCRAPE_ENABLED", "true")
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    with pytest.raises(ValueError, match="PostgreSQL"):
+    monkeypatch.delenv("FIREBASE_PROJECT_ID", raising=False)
+    with pytest.raises(ValueError, match="FIREBASE_PROJECT_ID"):
         DailyConfig.from_env()
 
 
@@ -227,7 +227,7 @@ def test_retry_is_bounded_exponential_and_does_not_retry_404():
     async def run():
         sleep = AsyncMock()
         operation = AsyncMock(side_effect=ArticleFetchError("article_timeout", "timeout", 504))
-        cfg = DailyConfig(enabled=True, database_url="postgresql://localhost/test", retry_base_seconds=2)
+        cfg = DailyConfig(enabled=True, firebase_project_id="demo-test", retry_base_seconds=2)
         with pytest.raises(ArticleFetchError):
             await retry(operation, cfg, sleep)
         assert operation.await_count == 3
@@ -272,7 +272,7 @@ def test_transient_retry_success_and_blocked_page_stop():
 
 def test_disabled_status_and_authenticated_trigger(monkeypatch):
     monkeypatch.setenv("SCRAPE_ENABLED", "false")
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("FIREBASE_PROJECT_ID", raising=False)
     monkeypatch.setenv("SCRAPE_TRIGGER_TOKEN", "long-test-token")
     with TestClient(app) as client:
         status = client.get("/api/v1/jobs/daily")
@@ -355,9 +355,9 @@ def test_local_timer_is_opt_in_and_disabled_by_default():
 def test_enabled_external_mode_does_not_touch_database_on_startup(monkeypatch):
     monkeypatch.setenv("SCRAPE_ENABLED", "true")
     monkeypatch.setenv("SCRAPE_IN_PROCESS", "false")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/unavailable-test-database")
+    monkeypatch.setenv("FIREBASE_PROJECT_ID", "demo-unavailable-test")
     connect = AsyncMock(side_effect=AssertionError("No startup database work"))
-    monkeypatch.setattr("app.services.storage.PostgresStore.connect", connect)
+    monkeypatch.setattr("app.services.storage.FirestoreStore.initialize", connect)
     with TestClient(app) as client:
         assert client.get("/health").status_code == 200
         assert app.state.daily_runner.timer is None

@@ -6,3 +6,8 @@ __pycache__/
 .ocr-models/
 .env
 .DS_Store
+
+# Server credentials and local emulator artifacts
+secrets/
+*-debug.log
+.firebase/

@@ -9,7 +9,7 @@ import time
 from app.daily_config import DailyConfig
 from app.services.discovery import discover_articles
 from app.services.errors import ArticleFetchError
-from app.services.storage import PostgresStore
+from app.services.storage import FirestoreStore
 from app.services.saved import process_and_store
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ async def retry(operation, config, sleep=asyncio.sleep):
 class DailyRunner:
     def __init__(self, config: DailyConfig, store=None, discover=discover_articles, scrape=None, sleep=asyncio.sleep):
         self.config = config
-        self.store = store or PostgresStore(config.database_url)
+        self.store = store or FirestoreStore(config.firebase_project_id, config.firestore_database)
         self.discover, self.scrape, self.sleep = discover, scrape, sleep
         self.task = None
         self.timer = None
@@ -134,3 +134,5 @@ class DailyRunner:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        if isinstance(self.store, FirestoreStore):
+            await self.store.close()

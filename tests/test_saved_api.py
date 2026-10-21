@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
-import psycopg
+from google.api_core.exceptions import ServiceUnavailable
 import pytest
 
 from app.main import app
@@ -85,7 +85,7 @@ def test_storage_and_unexpected_errors_hide_details(monkeypatch, persisted_store
 
     @asynccontextmanager
     async def unavailable(url):
-        raise psycopg.OperationalError(secret)
+        raise ServiceUnavailable(secret)
         yield
     persisted_store.article_session = unavailable
     response = client.post("/api/v1/scrape", json={"article_url": ONE})
@@ -96,7 +96,7 @@ def test_storage_and_unexpected_errors_hide_details(monkeypatch, persisted_store
 
 def test_disabled_scheduler_and_missing_database(monkeypatch):
     monkeypatch.setenv("SCRAPE_ENABLED", "false")
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("FIREBASE_PROJECT_ID", raising=False)
     with TestClient(app) as client:
         status = client.get("/api/v1/jobs/status")
         assert status.status_code == 200
@@ -117,12 +117,12 @@ def test_disabled_scheduler_and_missing_database(monkeypatch):
 
 
 def test_read_endpoints_sanitize_database_failures(monkeypatch, persisted_store):
-    secret = "postgresql://private-user:private-password@private-host/db"
-    persisted_store.articles = AsyncMock(side_effect=psycopg.OperationalError(secret))
-    persisted_store.lesson = AsyncMock(side_effect=psycopg.OperationalError(secret))
-    persisted_store.status = AsyncMock(side_effect=psycopg.OperationalError(secret))
+    secret = "PRIVATE_FIREBASE_SERVICE_ACCOUNT_KEY"
+    persisted_store.articles = AsyncMock(side_effect=ServiceUnavailable(secret))
+    persisted_store.lesson = AsyncMock(side_effect=ServiceUnavailable(secret))
+    persisted_store.status = AsyncMock(side_effect=ServiceUnavailable(secret))
     monkeypatch.setenv("SCRAPE_ENABLED", "false")
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("FIREBASE_PROJECT_ID", raising=False)
     with TestClient(app) as client:
         app.state.daily_runner = DailyRunner(config(), persisted_store)
         for path in ["/api/v1/articles", "/api/v1/articles/unknown", "/api/v1/jobs/status"]:

@@ -49,13 +49,13 @@ class Page(HTMLParser):
 def local_site(monkeypatch):
     monkeypatch.setenv("ENABLE_TEST_SITE", "true")
     monkeypatch.setenv("SCRAPE_ENABLED", "false")
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("FIREBASE_PROJECT_ID", raising=False)
     network = AsyncMock(side_effect=AssertionError("Fixtures must not fetch HTTP"))
     initialize = Mock(side_effect=AssertionError("Fixtures must not initialize OCR"))
-    database = AsyncMock(side_effect=AssertionError("Fixtures must not access PostgreSQL"))
+    database = AsyncMock(side_effect=AssertionError("Fixtures must not access Firestore"))
     monkeypatch.setattr("httpx.AsyncClient.send", network)
     monkeypatch.setattr("app.services.ocr.ocr_service.initialize", initialize)
-    monkeypatch.setattr("app.services.storage.PostgresStore.connect", database)
+    monkeypatch.setattr("app.services.storage.FirestoreStore.initialize", database)
     with TestClient(create_app()) as client:
         yield client
     network.assert_not_awaited()

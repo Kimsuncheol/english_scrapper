@@ -12,14 +12,15 @@ were drawn locally with Pillow. No external media or model is required.
 `app.dev_site` reads these files and invokes the existing pure article parser.
 It serves only allowlisted fixtures/assets, never arbitrary URLs or disk paths.
 Fusion script text lives in inert HTML templates; the parser reads it as usual,
-while the browser never executes it. CSP also blocks scripts/external resources.
+while the browser never executes it. CSP blocks external resources and inline scripts. The index loads one local
+script for the live URL form, with same-origin API requests allowed.
 The route tree is
 registered only when `ENABLE_TEST_SITE=true` before the app is created; it is
 absent by default and does not appear in the API schema.
 
-Use the repository README's local test website instructions to start it. This
-playground does not initialize OCR, write to PostgreSQL, or relax production
-SSRF restrictions.
+Use the repository README's local test website instructions to start it. Fixture browsing does not initialize OCR or write to Firestore. The index URL
+form calls the regular scrape API, which runs real OCR and saves to Firestore
+when configured. Neither mode relaxes production SSRF restrictions.
 
 The separate `tests/test_local_fixture_e2e.py` harness routes allowed logical
 article/image requests to these real HTML/PNG routes using an in-process ASGI
