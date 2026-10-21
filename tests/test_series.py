@@ -192,7 +192,8 @@ def test_all_saved_days_are_reachable_beyond_the_old_twenty_record_limit(site):
 
 def test_non_series_page_does_not_hide_later_series_days(site):
     client, store, source, processor = site
-    store.saved[TWO] = result(TWO)
+    unrelated = ONE.replace("/21/ONE/", "/22/UNRELATED/")
+    store.saved[unrelated] = result(unrelated)
     store.saved[ONE] = lesson()
     first = client.get(PREFIX + "/saved?limit=1&offset=0").json()
     assert first["items"] == [] and first["next_offset"] == 1
@@ -226,3 +227,14 @@ def test_day_loading_keeps_public_url_validation(site, url):
     client, store, source, processor = site
     assert client.post(PREFIX + "/day", json={"article_url": url}).status_code == 422
     processor.assert_not_awaited()
+
+
+def test_old_day_import_does_not_displace_latest_from_first_page(site):
+    client, store, *_ = site
+    store.saved[ONE] = lesson()
+    for day in range(1, 10):
+        url = ONE.replace("/21/ONE/", f"/{day:02d}/OLDER/")
+        store.saved[url] = lesson(url)
+    first = client.get(PREFIX + "/saved?limit=5").json()
+    assert first["items"][0]["issue_date"] == "2026-10-21"
+    assert first["next_offset"] == 5

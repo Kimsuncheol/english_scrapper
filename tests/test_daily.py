@@ -82,6 +82,12 @@ class MemoryStore:
             items.append({**record, "article": value.article, "processing_status": value.processing.status})
         return {"items": items[offset:offset + limit], "total": len(items), "limit": limit, "offset": offset}
 
+    async def series_articles(self, limit=5, offset=0):
+        page = await self.articles(limit=len(self.saved) or 1)
+        items = [row for row in page["items"] if row["canonical_url"].startswith("https://www.chosun.com/national/nie/english/")]
+        items.sort(key=lambda row: row["canonical_url"], reverse=True)
+        return {"items": items[offset:offset + limit], "total": len(items)}
+
     @asynccontextmanager
     async def run_session(self):
         if self.locked:

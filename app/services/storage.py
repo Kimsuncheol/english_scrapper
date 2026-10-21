@@ -172,6 +172,23 @@ class FirestoreStore:
         except STORAGE_ERRORS as exc:
             raise StorageUnavailable() from exc
 
+    async def series_articles(self, limit=5, offset=0):
+        """Page actual English article URLs by their padded YYYY/MM/DD path.
+
+        Canonical URLs have one normalized host/prefix. This uses the existing
+        single-field index, needs no new collection/index or data migration,
+        and keeps a newly imported old day from displacing today's lesson.
+        """
+        await self.initialize()
+        prefix = "https://www.chosun.com/national/nie/english/"
+        try:
+            query = self.collection("lessons").where(filter=FieldFilter("canonical_url", ">=", prefix)).where(filter=FieldFilter("canonical_url", "<", prefix + "\uf8ff"))
+            count = await query.count().get(**RPC)
+            page = query.select(["id", "canonical_url", "article", "processing_status", "created_at", "updated_at"]).order_by("canonical_url", direction="DESCENDING").offset(offset).limit(limit)
+            return {"items": [s.to_dict() async for s in page.stream(**RPC)], "total": count[0][0].value}
+        except STORAGE_ERRORS as exc:
+            raise StorageUnavailable() from exc
+
 
 class RunSession:
     def __init__(self, store, name, owner):

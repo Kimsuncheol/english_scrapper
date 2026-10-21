@@ -38,7 +38,7 @@ async def saved_expressions(store, limit=5, offset=0):
     # Paginate all stored records with bounded full-OCR payloads per request.
     # Offsets scan underlying records, including non-series articles, so a page
     # containing no matching lessons must still expose its continuation.
-    page = await store.articles(limit=limit, offset=offset)
+    page = await store.series_articles(limit=limit, offset=offset)
     items = []
     for summary in page["items"]:
         article = summary["article"]

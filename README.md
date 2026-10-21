@@ -563,8 +563,12 @@ automatically.
 **Lesson date** comes from the actual article URL's year/month/day path, while
 **Published** retains the original metadata timestamp (which can be the previous
 evening). Invalid/missing URL dates remain unspecified. The date selector switches
-between loaded days. **Load more saved days** paginates every stored record, five
-at a time, without the previous ten-lesson/twenty-record cutoff. Pages containing
+between loaded days. **Load more saved days** paginates stored English article records, five
+at a time, without the previous ten-lesson/twenty-record cutoff. A Firestore
+canonical-URL range query orders the real padded year/month/day paths descending,
+so importing an old lesson does not displace today from the first page; the
+ordinary article API retains its original creation-time ordering. No new
+Firestore composite index or data migration is required. Pages containing
 non-series records still expose continuation so later matching days are reachable.
 Dates are sorted among loaded results; concurrent inserts can shift offset pages,
 so the browser deduplicates by saved article ID. Refresh resets to page one.

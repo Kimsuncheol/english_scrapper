@@ -270,3 +270,27 @@ def test_oversized_result_records_failure_without_partial_save():
         assert (await store.status())["failures"][0]["error_code"] == "result_too_large"
         await store.close()
     asyncio.run(run())
+
+
+def test_series_pagination_orders_issue_dates_before_late_import_time():
+    from test_daily import TWO
+    async def run():
+        store = await make_store()
+        async with store.run_session() as session:
+            for url in [ONE, TWO]:
+                value = result(url)
+                value.article.title = "[스피킹이 강해지는 영어] Synthetic lesson"
+                await session.enqueue([url])
+                await session.save(url, value)
+        first = await store.series_articles(limit=1, offset=0)
+        second = await store.series_articles(limit=1, offset=1)
+        assert first["total"] == second["total"] == 2
+        assert first["items"][0]["canonical_url"] == ONE
+        assert second["items"][0]["canonical_url"] == TWO
+        from app.services.series import saved_expressions
+        full = await saved_expressions(store, limit=1)
+        assert str(full.items[0].issue_date) == "2026-10-21"
+        assert full.items[0].ocr.raw_text == "안녕 Hello"
+        assert full.next_offset == 1
+        await store.close()
+    asyncio.run(run())
