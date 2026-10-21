@@ -13,6 +13,9 @@ then recognizes its pixels with OCR. It does **not** extract the graphic as
 native/selectable text from the article HTML. Page metadata comes from HTML/page
 data, while lesson text is an OCR estimate that can contain errors.
 
+API reference: [API documentation](docs/API.md), [OpenAPI specification](docs/openapi.json),
+and [synthetic response example](docs/examples/scrape-response.json).
+
 ## Saved article API
 
 Configure `FIREBASE_PROJECT_ID` and server credentials even when `SCRAPE_ENABLED=false` if using manual

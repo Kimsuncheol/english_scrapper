@@ -1,0 +1,631 @@
+{
+  "article": {
+    "url": "https://www.chosun.com/national/nie/english/2026/10/21/SYNTHETICEXAMPLE/",
+    "title": "[스피킹이 강해지는 영어] Let's make room.",
+    "published_at": "2026-10-20T21:00:00+09:00",
+    "section": "English",
+    "language": "ko"
+  },
+  "lesson_image": {
+    "url": "https://images.chosun.com/synthetic-example.png",
+    "alt_text": null,
+    "content_type": "image/png",
+    "width": 720,
+    "height": 1440,
+    "resized_urls": {},
+    "source": "content_elements",
+    "is_fallback": false,
+    "content_element_path": [
+      0
+    ],
+    "byte_size": 12345,
+    "format": "PNG",
+    "download_url": "https://images.chosun.com/synthetic-example.png"
+  },
+  "article_images": [],
+  "ocr": {
+    "raw_text": "표현\nLet's make room.\n뜻\n자리를 마련하자.\n설명\n함께 쓸 공간을 만들자고\n제안하는 말입니다.\n대화\nA: My bag's on this chair.\nB: Let’s make room.\nI’ll move the blue box.\nA: Great—now we can sit!\n대화 해석\nA: 내 가방이 이 의자 위에 있어.\nB: 자리를 마련하자.\n파란 상자는 내가 옮길게.\nA: 좋아, 이제 앉을 수 있네!\n어휘\nmake room: 자리를 마련하다\nchair: 의자\nblue box: 파란 상자",
+    "korean_text": null,
+    "english_text": null,
+    "engine": "mock",
+    "status": "ok",
+    "mean_confidence": null,
+    "regions": [
+      {
+        "text": "blue box: 파란 상자",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 1156,
+          "width": 270,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "make room: 자리를 마련하다",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 1080,
+          "width": 380,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "좋아, 이제 앉을 수 있네!",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 88,
+          "y": 890,
+          "width": 330,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "파란 상자는 내가 옮길게.",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 88,
+          "y": 852,
+          "width": 330,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "B:",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 814,
+          "width": 28,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "A:",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 776,
+          "width": 28,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "sit!",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 348,
+          "y": 606,
+          "width": 46,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "we",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 242,
+          "y": 606,
+          "width": 36,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "A:",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 606,
+          "width": 28,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "blue",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 276,
+          "y": 568,
+          "width": 56,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "move",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 142,
+          "y": 568,
+          "width": 68,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "room.",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 252,
+          "y": 530,
+          "width": 80,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "Let’s",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 88,
+          "y": 530,
+          "width": 70,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "chair.",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 314,
+          "y": 492,
+          "width": 68,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "on",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 212,
+          "y": 492,
+          "width": 32,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "My",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 88,
+          "y": 492,
+          "width": 36,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "대화",
+        "confidence": 0.98,
+        "bounding_box": {
+          "x": 48,
+          "y": 452,
+          "width": 48,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "함께 쓸 공간을 만들자고",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 326,
+          "width": 330,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "자리를 마련하자.",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 208,
+          "width": 220,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "room.",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 228,
+          "y": 90,
+          "width": 92,
+          "height": 30
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "Let's",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 90,
+          "width": 76,
+          "height": 30
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "표현",
+        "confidence": 0.98,
+        "bounding_box": {
+          "x": 48,
+          "y": 48,
+          "width": 48,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "make",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 136,
+          "y": 90,
+          "width": 80,
+          "height": 30
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "뜻",
+        "confidence": 0.98,
+        "bounding_box": {
+          "x": 48,
+          "y": 168,
+          "width": 36,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "설명",
+        "confidence": 0.98,
+        "bounding_box": {
+          "x": 48,
+          "y": 286,
+          "width": 48,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "제안하는 말입니다.",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 364,
+          "width": 252,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "A:",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 492,
+          "width": 28,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "bag's",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 136,
+          "y": 492,
+          "width": 64,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "this",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 256,
+          "y": 492,
+          "width": 46,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "B:",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 530,
+          "width": 28,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "make",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 170,
+          "y": 530,
+          "width": 70,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "I’ll",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 88,
+          "y": 568,
+          "width": 42,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "the",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 222,
+          "y": 568,
+          "width": 42,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "box.",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 344,
+          "y": 568,
+          "width": 56,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "Great—now",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 88,
+          "y": 606,
+          "width": 142,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "can",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 290,
+          "y": 606,
+          "width": 46,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "대화 해석",
+        "confidence": 0.98,
+        "bounding_box": {
+          "x": 48,
+          "y": 736,
+          "width": 120,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "내 가방이 이 의자 위에 있어.",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 88,
+          "y": 776,
+          "width": 392,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "자리를 마련하자.",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 88,
+          "y": 814,
+          "width": 220,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "A:",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 890,
+          "width": 28,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "어휘",
+        "confidence": 0.98,
+        "bounding_box": {
+          "x": 48,
+          "y": 1040,
+          "width": 48,
+          "height": 24
+        },
+        "low_confidence": false
+      },
+      {
+        "text": "chair: 의자",
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 1118,
+          "width": 170,
+          "height": 24
+        },
+        "low_confidence": false
+      }
+    ],
+    "warnings": []
+  },
+  "lesson": {
+    "status": "structured",
+    "fields": {
+      "expression": {
+        "text": "Let's make room.",
+        "region_indices": [
+          20,
+          22,
+          19
+        ],
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 90,
+          "width": 272,
+          "height": 30
+        }
+      },
+      "korean_meaning": {
+        "text": "자리를 마련하자.",
+        "region_indices": [
+          18
+        ],
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 208,
+          "width": 220,
+          "height": 24
+        }
+      },
+      "korean_explanation": {
+        "text": "함께 쓸 공간을 만들자고\n제안하는 말입니다.",
+        "region_indices": [
+          17,
+          25
+        ],
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 326,
+          "width": 330,
+          "height": 62
+        }
+      },
+      "english_dialogue": {
+        "text": "A: My bag's on this chair.\nB: Let’s make room.\nI’ll move the blue box.\nA: Great—now we can sit!",
+        "region_indices": [
+          26,
+          15,
+          27,
+          14,
+          28,
+          13,
+          29,
+          12,
+          30,
+          11,
+          31,
+          10,
+          32,
+          9,
+          33,
+          8,
+          34,
+          7,
+          35,
+          6
+        ],
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 492,
+          "width": 352,
+          "height": 138
+        }
+      },
+      "korean_dialogue_translation": {
+        "text": "A: 내 가방이 이 의자 위에 있어.\nB: 자리를 마련하자.\n파란 상자는 내가 옮길게.\nA: 좋아, 이제 앉을 수 있네!",
+        "region_indices": [
+          5,
+          37,
+          4,
+          38,
+          3,
+          39,
+          2
+        ],
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 776,
+          "width": 432,
+          "height": 138
+        }
+      },
+      "vocabulary_notes": {
+        "text": "make room: 자리를 마련하다\nchair: 의자\nblue box: 파란 상자",
+        "region_indices": [
+          1,
+          41,
+          0
+        ],
+        "confidence": 0.96,
+        "bounding_box": {
+          "x": 48,
+          "y": 1080,
+          "width": 380,
+          "height": 100
+        }
+      },
+      "source_credit": null
+    },
+    "reasons": [],
+    "unassigned_region_indices": [],
+    "method": "labeled_layout_v1"
+  },
+  "processing": {
+    "status": "completed",
+    "completed_stages": [
+      "url_validation",
+      "article_fetch",
+      "article_parse",
+      "image_download",
+      "ocr",
+      "lesson_parse"
+    ],
+    "ocr_status": "ok",
+    "lesson_status": "structured",
+    "elapsed_ms": 1234.5,
+    "warnings": []
+  }
+}
