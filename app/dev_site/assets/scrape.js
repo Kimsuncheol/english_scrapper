@@ -116,7 +116,6 @@ function renderExpressions(items) {
       section.append(heading, text);
       fields.append(section);
     }
-    card.append(fields);
     const rawHeading = document.createElement("h4");
     rawHeading.textContent = "Full OCR text";
     const rawNote = document.createElement("p");
@@ -136,7 +135,14 @@ function renderExpressions(items) {
     regions.addEventListener("toggle", () => {
       if (regions.open && !regionText.textContent) regionText.textContent = JSON.stringify(item.ocr.regions, null, 2);
     });
-    card.append(rawHeading, rawNote, raw, reasons, regions);
+    // Put the complete readable lesson before optional classification/debugging.
+    // Unassigned sections must not bury the available text under empty panels.
+    const organized = document.createElement("details");
+    const organizedHeading = document.createElement("summary");
+    organizedHeading.textContent = "Organized lesson fields and classification status";
+    organized.open = Object.keys(fieldLabels).some(key => Boolean(item.lesson.fields[key]));
+    organized.append(organizedHeading, fields);
+    card.append(rawHeading, rawNote, raw, reasons, organized, regions);
     expressions.append(card);
   }
 }
