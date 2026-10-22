@@ -299,15 +299,16 @@ async function loadArchive(page = 1) {
       const action = document.createElement("td");
       const open = document.createElement("button");
       open.type = "button";
-      open.textContent = "Open full lesson";
-      open.setAttribute("aria-label", `Open full lesson for ${item.issue_date}`);
+      open.className = "archive-lesson-link";
+      open.textContent = item.expression;
+      open.setAttribute("aria-label", `Read ${item.expression} — ${item.issue_date}`);
       open.addEventListener("click", async () => {
         open.disabled = true;
         try { await openArchiveLesson(item.article_url); }
         finally { open.disabled = false; }
       });
       action.append(open);
-      row.append(dayCell, expressionCell, action);
+      row.append(dayCell, action, expressionCell);
       archiveEntries.append(row);
     }
     archiveStatus.className = "";

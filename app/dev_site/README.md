@@ -73,3 +73,7 @@ links preserve the archive page number. The standalone page reads the existing
 saved result and uses `lesson-reader.js`/`lesson.js`, without publisher requests
 or OCR. Homepage `scrape.js` renders compact links instead of complete lessons.
 All of these routes/assets remain opt-in.
+
+Archive columns are Date, Read lesson, and Expression (publisher title). The
+Read lesson action displays the expression itself and opens its dedicated
+reading page; the final column links to the original publisher article.

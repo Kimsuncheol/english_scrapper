@@ -47,3 +47,8 @@
 .lesson-page h1{font-size:clamp(25px,4vw,34px);margin:24px 0 8px;letter-spacing:-.02em}
 .lesson-page .saved-expression{margin:22px 0;background:#f6f8f1;padding:clamp(18px,3vw,30px)}
 .back-to-lessons{display:inline-flex;align-items:center;min-height:44px;font-size:14px;font-weight:650}
+
+.archive-lesson-link{display:inline-block;min-height:44px;padding:6px 0;background:transparent;border:0;color:#205945;font:inherit;font-weight:700;line-height:1.5;text-align:left;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.archive-lesson-link:hover{color:#103d2d}
+.archive-lesson-link:focus-visible{outline:3px solid #749d65;outline-offset:3px;border-radius:3px}
+.archive-lesson-link:disabled{opacity:.6;cursor:wait}
