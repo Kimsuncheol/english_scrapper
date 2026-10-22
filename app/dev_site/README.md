@@ -50,3 +50,9 @@ populates all pages in Firestore outside the web process; `--resume` completes a
 interrupted initial import. See the main README for credentials, limits and
 refresh behavior. The homepage only reads persisted catalog/results; it does not
 crawl the publisher automatically on load.
+
+The Full OCR text reading view preserves every nonblank OCR line in order, with
+roomier typography, paragraph spacing, explicit section-heading emphasis and A/B
+speaker cues. It does not infer missing lesson fields or correct recognized
+words. Expand **Original OCR text · exact line breaks** for the unchanged raw
+string; the API payload and raw region indices are unchanged.

@@ -65,6 +65,88 @@ function lessonDate(item) {
   return item.issue_date || "";
 }
 
+// Presentation only: retain every nonblank OCR line in its original order.
+// Only explicit section labels and speaker prefixes receive visual emphasis.
+function ocrSpeakerPrefix(text, regions = [], leftEdge = 0) {
+  const explicit = text.match(/^(\s*[AB]\s*[:：])(.*)$/i);
+  if (explicit) return explicit;
+  const spaced = text.match(/^(\s*[AB])(\s+.+)$/);
+  if (!spaced) return null;
+  // Real OCR sometimes omits the printed colon. Require a separate label at
+  // the left margin, a visible word gap, and matching words on the same row.
+  const label = spaced[1].trim();
+  for (let i = 0; i < regions.length - 1; i += 1) {
+    const region = regions[i], next = regions[i + 1];
+    const a = region.bounding_box, b = next.bounding_box;
+    if (region.text !== label || !a || !b || !next.text || !spaced[2].trimStart().startsWith(next.text)) continue;
+    const overlap = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+    const gap = b.x - a.x - a.width;
+    if (a.x <= leftEdge + 2 * a.height && overlap >= .45 * Math.min(a.height, b.height)
+        && gap >= .6 * a.height && gap <= 3 * Math.max(a.height, b.height)) return spaced;
+  }
+  return null;
+}
+
+function ocrReadingBlocks(rawText, regions = []) {
+  const headings = /^(?:표현|영어 표현|뜻|의미|설명|해설|대화|영어 대화|대화 해석|대화 번역|해석|번역|어휘|단어|단어와 숙어|출처|Expression|Meaning|Explanation|Dialogue|Translation|Vocabulary|Vocabulary notes|Source credit)[:：]?$/i;
+  const leftEdge = regions.reduce((min, region) => Math.min(min, region.bounding_box?.x ?? Infinity), Infinity);
+  const speaker = text => Boolean(ocrSpeakerPrefix(text, regions, leftEdge));
+  const blocks = [];
+  let current = null;
+  for (const text of (rawText || "").split(/\r\n|\r|\n/)) {
+    if (!text.trim()) { current = null; continue; }
+    if (headings.test(text.trim())) {
+      blocks.push({ type: "heading", lines: [text] });
+      current = null;
+      continue;
+    }
+    if (!current || current.type === "dialogue" || speaker(text)) {
+      current = { type: speaker(text) ? "dialogue" : "paragraph", lines: [] };
+      blocks.push(current);
+    }
+    current.lines.push(text);
+  }
+  return blocks;
+}
+
+function renderOCRReadingView(ocr, expression) {
+  const view = document.createElement("div");
+  view.className = "ocr-reading-view";
+  const blocks = ocrReadingBlocks(ocr.raw_text, ocr.regions);
+  const leftEdge = ocr.regions.reduce((min, region) => Math.min(min, region.bounding_box?.x ?? Infinity), Infinity);
+  if (!blocks.length) {
+    const empty = document.createElement("p");
+    empty.textContent = "OCR returned no text.";
+    view.append(empty);
+  }
+  for (const block of blocks) {
+    const section = document.createElement(block.type === "heading" ? "h5" : "div");
+    section.className = `ocr-reading-block ocr-${block.type}`;
+    for (const text of block.lines) {
+      const line = document.createElement("p");
+      line.className = "ocr-reading-line";
+      const korean = /[가-힣]/.test(text);
+      const english = /[a-z]/i.test(text);
+      line.classList.add(korean ? "ocr-korean" : "ocr-english");
+      if (korean && !english) line.lang = "ko";
+      else if (english && !korean) line.lang = "en";
+      if (expression && text.trim() === expression.trim()) line.classList.add("ocr-expression");
+      const prefix = ocrSpeakerPrefix(text, ocr.regions, leftEdge);
+      if (prefix) {
+        const label = document.createElement("span");
+        label.className = "ocr-speaker";
+        label.textContent = prefix[1];
+        line.append(label, document.createTextNode(prefix[2]));
+      } else line.textContent = text;
+      // A heading must not contain paragraph elements.
+      if (block.type === "heading") section.textContent = text;
+      else section.append(line);
+    }
+    view.append(section);
+  }
+  return view;
+}
+
 function renderExpressions(items) {
   expressions.replaceChildren();
   const fieldLabels = {
@@ -113,7 +195,7 @@ function renderExpressions(items) {
       heading.textContent = label;
       const text = document.createElement("p");
       text.className = field ? "lesson-field-text" : "muted";
-      text.textContent = field?.text || "Not reliably classified; see full OCR text below.";
+      text.textContent = field?.text || "Not reliably classified; see full OCR text above.";
       section.append(heading, text);
       fields.append(section);
     }
@@ -121,10 +203,16 @@ function renderExpressions(items) {
     rawHeading.textContent = "Full OCR text";
     const rawNote = document.createElement("p");
     rawNote.className = "muted";
-    rawNote.textContent = "All recognized text is shown without truncation. OCR can contain errors; compare the original lesson image when needed.";
+    rawNote.textContent = "All recognized text is shown below with clearer spacing, section labels and speaker cues. Text and reading order are preserved; formatting does not confirm classification or correct OCR errors.";
     const raw = document.createElement("pre");
     raw.className = "lesson-raw-text";
     raw.textContent = item.ocr.raw_text || "OCR returned no text.";
+    const original = document.createElement("details");
+    original.className = "ocr-original";
+    const originalHeading = document.createElement("summary");
+    originalHeading.textContent = "Original OCR text · exact line breaks";
+    original.append(originalHeading, raw);
+    const reader = renderOCRReadingView(item.ocr, item.expression);
     const reasons = document.createElement("p");
     reasons.className = "muted";
     reasons.textContent = item.lesson.reasons.join(" ");
@@ -143,7 +231,7 @@ function renderExpressions(items) {
     organizedHeading.textContent = "Organized lesson fields and classification status";
     organized.open = Object.keys(fieldLabels).some(key => Boolean(item.lesson.fields[key]));
     organized.append(organizedHeading, fields);
-    card.append(rawHeading, rawNote, raw, reasons, organized, regions);
+    card.append(rawHeading, rawNote, reader, original, reasons, organized, regions);
     expressions.append(card);
   }
 }

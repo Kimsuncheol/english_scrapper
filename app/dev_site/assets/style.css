@@ -11,3 +11,19 @@
 .archive-table th, .archive-table td { padding: .8rem .6rem; border-bottom: 1px solid #dae1e8; }
 .archive-table td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
 #archive-page { width: 5rem; }
+
+/* The reading view preserves OCR content; the exact original stays expandable. */
+.ocr-reading-view{background:#fffefa;border:1px solid #dce3d7;border-radius:12px;padding:clamp(18px,3vw,32px);margin:16px 0;max-width:100%;font-size:17px;line-height:1.95;overflow-wrap:anywhere}
+.ocr-reading-block{max-width:72ch;margin:0}
+.ocr-reading-block + .ocr-reading-block{margin-top:20px}
+.ocr-reading-view .ocr-reading-line{margin:0;white-space:pre-wrap;letter-spacing:.005em}
+.ocr-reading-view .ocr-reading-line + .ocr-reading-line{margin-top:5px}
+.ocr-reading-view .ocr-english{color:#243b33}
+.ocr-reading-view .ocr-korean{color:#425044;word-break:keep-all;overflow-wrap:anywhere;font-size:.96em;line-height:2}
+.ocr-reading-view .ocr-expression{font-size:1.2em;font-weight:750;color:#205945}
+.ocr-reading-view .ocr-heading{font-size:13px;letter-spacing:.04em;color:#205945;padding-bottom:8px;border-bottom:1px solid #dce3d7;font-weight:750}
+.ocr-reading-view .ocr-dialogue{background:#f2f6f0;border-left:3px solid #71967e;border-radius:0 8px 8px 0;padding:12px 16px}
+.ocr-speaker{display:inline-block;min-width:2em;margin-right:.35em;font-weight:800;color:#205945}
+.ocr-original{margin:16px 0;padding:12px 16px;border:1px dashed #c5cfc0;border-radius:8px}
+.ocr-original summary{font-size:13px;color:#53604e}
+@media(max-width:600px){.ocr-reading-view{font-size:16px;padding:18px 14px}.ocr-reading-view .ocr-dialogue{padding:10px 12px}}
