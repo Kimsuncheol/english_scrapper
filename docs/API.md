@@ -553,6 +553,21 @@ pure parser debugging do not invoke external HTTP or real OCR. The local E2E
 harness routes logical approved requests to fixtures and mocks OCR; it does not
 add an HTTP endpoint that allows public localhost scraping.
 
+### Dedicated saved-lesson HTML page
+
+`GET /_dev/test-site/lessons/{article_id}?page=1` serves a single saved lesson
+with full reading layout and home links. `page` is an optional integer 1–400
+that preserves the homepage archive pagination on return. Article IDs must match
+`[a-zA-Z0-9_-]{1,128}`. Existing records return HTTP 200 HTML with no-store/CSP
+headers; unknown records return HTML 404 with a home link. Invalid parameters
+use the standard 422 validation envelope. This development-only HTML route is
+not included in OpenAPI. It reads persisted output without external fetching or
+OCR, and safely embeds its response as inert, HTML-escaped JSON data.
+
+Homepage saved cards link directly to this page. Opening an unsaved archive
+entry first uses the existing `/series/day` POST, then navigates to the returned
+saved article ID. The JSON APIs and their response models are unchanged.
+
 ## Updating this reference
 
 Routes/models live in `app/api.py`, `app/daily_api.py`, `app/dev_site/__init__.py`

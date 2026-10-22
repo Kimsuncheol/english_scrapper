@@ -238,3 +238,65 @@ def test_old_day_import_does_not_displace_latest_from_first_page(site):
     first = client.get(PREFIX + "/saved?limit=5").json()
     assert first["items"][0]["issue_date"] == "2026-10-21"
     assert first["next_offset"] == 5
+
+
+def test_dedicated_lesson_page_is_linked_to_home_and_reuses_saved_result(site):
+    import json
+    import re
+    client, store, source, processor = site
+    saved = client.post(PREFIX + '/day', json={'article_url': ONE}).json()
+    response = client.get('/_dev/test-site/lessons/' + saved['id'] + '?page=143')
+    assert response.status_code == 200
+    assert '/_dev/test-site/?page=143#archive-heading' in response.text
+    assert 'lesson-reader.js' in response.text and 'lesson.js' in response.text
+    assert 'script-src \'self\'' in response.headers['content-security-policy']
+    assert response.headers['cache-control'] == 'no-store'
+    payload = re.search(r'<script type="application/json" id="lesson-data">(.*?)</script>', response.text, re.S).group(1)
+    data = json.loads(payload)
+    assert data['id'] == saved['id'] and data['ocr'] == saved['ocr']
+    assert data['lesson'] == saved['lesson']
+    assert client.get('/_dev/test-site/').status_code == 200
+    processor.assert_awaited_once()
+    source.assert_not_awaited()
+
+
+def test_lesson_page_escapes_ocr_and_titles_as_inert_json(site):
+    import json
+    import re
+    client, store, source, processor = site
+    processor.return_value.article.title = '[스피킹이 강해지는 영어] </title><img src=x onerror=alert(1)>'
+    processor.return_value.ocr.raw_text = '</script><script>alert(1)</script> & <hello>'
+    saved = client.post(PREFIX + '/day', json={'article_url': ONE}).json()
+    response = client.get('/_dev/test-site/lessons/' + saved['id'])
+    assert response.status_code == 200
+    assert '<img src=x' not in response.text and '<script>alert(1)</script>' not in response.text
+    payload = re.search(r'<script type="application/json" id="lesson-data">(.*?)</script>', response.text, re.S).group(1)
+    assert json.loads(payload)['ocr']['raw_text'] == processor.return_value.ocr.raw_text
+
+
+def test_missing_lesson_page_has_clear_error_and_home_link(site):
+    client, store, source, processor = site
+    response = client.get('/_dev/test-site/lessons/unknown?page=2')
+    assert response.status_code == 404 and 'Lesson not found' in response.text
+    assert '/_dev/test-site/?page=2#archive-heading' in response.text
+    assert client.get('/_dev/test-site/lessons/bad.id').status_code == 422
+    assert client.get('/_dev/test-site/lessons/unknown?page=401').status_code == 422
+    processor.assert_not_awaited()
+
+
+def test_lesson_pages_and_reader_assets_disabled_by_default(monkeypatch):
+    monkeypatch.setenv('ENABLE_TEST_SITE', 'false')
+    with TestClient(create_app()) as client:
+        for path in ('/lessons/example', '/assets/lesson-reader.js', '/assets/lesson.js'):
+            assert client.get('/_dev/test-site' + path).status_code == 404
+
+
+def test_home_uses_compact_links_and_separate_reader_asset(site):
+    client, *_ = site
+    script = client.get('/_dev/test-site/assets/scrape.js').text
+    assert 'window.location.assign(lessonPageHref(item.id))' in script
+    assert 'Read full lesson →' in script
+    assert 'function renderOCRReadingView' not in script
+    reader = client.get('/_dev/test-site/assets/lesson-reader.js')
+    assert reader.status_code == 200 and 'function renderLessonCards' in reader.text
+    assert 'innerHTML' not in reader.text

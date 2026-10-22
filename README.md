@@ -553,8 +553,10 @@ and no usable Fusion data, while retaining title/source fallbacks.
 
 ### Check for new expressions on the test website
 
-The homepage shows **Speaking English lessons by day** with the full saved
-lesson, not just its heading. Each day displays every available structured field
+The homepage shows the ten-day expression archive and compact saved lesson links.
+**Open full lesson** loads/reuses the selected result and opens its dedicated
+reading page at `/_dev/test-site/lessons/{article_id}`. Saved lesson cards link
+there directly. Each reading page displays every available structured field
 (Korean meaning/explanation, English dialogue, Korean translation, vocabulary,
 and source credit), the **reflowed lesson OCR text**, with complete speaker turns and known publisher
 credit/advertising footer lines excluded from the reading view, processing
@@ -590,8 +592,9 @@ without another image download or OCR run. **Refresh saved expressions** reloads
 the cards without contacting Chosun, including results saved by a daily job.
 Manual URL submissions refresh these lessons too. The check also lists dates
 currently present in the publisher's newest tag feed. Choose one under **Quick selection from the newest publisher page** and press **Load selected day** to OCR/save an unsaved
-day or retrieve its existing full result. The selected day is retained in the UI
-even when it is an older cached result outside page one. A selected day uses the
+day or retrieve its existing full result. The selected day opens on its own page even when it is an older cached result
+outside page one. **Back to all lessons** returns to the selected archive page;
+page numbers are retained in the homepage URL. A selected day uses the
 same URL validation, locking and persistence pipeline as a manual submission.
 
 “New” means **new to this scraper**, not proof that an article was published since
@@ -1812,3 +1815,19 @@ The Firestore emulator test verifies committed page replay, persistence across
 repository instances, pagination and exact-date lookup. Run the ordinary suite
 with `ENABLE_TEST_SITE=false SCRAPE_ENABLED=false .venv/bin/python -m pytest -q`;
 set the loopback `FIRESTORE_EMULATOR_HOST` as documented above to include SDK tests.
+
+### Dedicated lesson reading pages
+
+Use `/_dev/test-site/lessons/{saved_article_id}?page=1` to open one saved lesson.
+The homepage's **Read full lesson** links and archive's **Open full lesson**
+buttons lead here. The `page` parameter (1–400) is the return archive page, not
+a lesson selector. Opening a saved page performs a Firestore read only: it does
+not fetch Chosun, download images or initialize OCR. Unsaved archive entries are
+processed through the existing explicit POST before navigation.
+
+The page contains the same reflowed OCR text, optional structured fields and
+expandable diagnostics, with known advertising footer lines excluded from the
+reading view. **Back to all lessons** links appear above and below the lesson.
+The homepage no longer embeds multiple complete OCR lessons. Unknown saved IDs
+return an HTML 404 with a home link. Both pages require `ENABLE_TEST_SITE=true`;
+no public production routes or SSRF exceptions are introduced.

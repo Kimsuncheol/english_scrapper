@@ -4,9 +4,9 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 const root = path.resolve(__dirname, '../..');
-const source = fs.readFileSync(path.join(root, 'app/dev_site/assets/scrape.js'), 'utf8');
+const source = fs.readFileSync(path.join(root, 'app/dev_site/assets/lesson-reader.js'), 'utf8');
 const context = vm.createContext({});
-vm.runInContext(source.slice(source.indexOf('function ocrSpeakerPrefix'), source.indexOf('function renderExpressions')), context);
+vm.runInContext(source.slice(source.indexOf('function ocrSpeakerPrefix'), source.indexOf('function renderLessonCards')), context);
 
 const footer = '(YBM 종 로 센터 서 재 연 )\nYBM 어학원 취 업 과 승진 필수 어 학 자격\n학 원 문의 02) 2267-0509 TOEIC. Speaking\n내 용 문의 02) 2000-0561';
 function sample() {

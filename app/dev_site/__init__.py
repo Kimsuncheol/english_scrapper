@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Path as PathParameter, Query, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
 
 from app.services.errors import ArticleFetchError
@@ -24,7 +24,7 @@ CASES = {
     "no-lesson-image": ("No lesson image", "A text-only article should report no_lesson_image."),
     "malformed-data": ("Malformed article data", "Broken JSON-LD and Fusion data should be ignored safely."),
 }
-ASSETS = {"style.css", "scrape.js", "lesson.png", "lesson-small.png", "thumbnail.png"}
+ASSETS = {"style.css", "scrape.js", "lesson-reader.js", "lesson.js", "lesson.png", "lesson-small.png", "thumbnail.png"}
 HEADERS = {
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
@@ -40,7 +40,7 @@ def navigation():
     links = "".join(f'<a href="{PREFIX}/articles/{slug}">{escape(title)}</a>' for slug, (title, _) in CASES.items())
     return (f'<header class="site-header"><a class="brand" href="{PREFIX}/">Lesson scraper lab</a>'
         '<span class="badge">DEVELOPMENT ONLY · OFFLINE FIXTURES</span></header>'
-        f'<nav aria-label="Fixture pages"><a href="{PREFIX}/">All fixtures</a>{links}</nav>')
+        f'<nav aria-label="Fixture pages"><a href="{PREFIX}/">Home</a>{links}</nav>')
 
 
 def inspect_fixture(html, slug):
@@ -131,3 +131,23 @@ async def series_archive(response: Response, page: int = Query(1, ge=1, le=400),
     from app.services.archive import archive_page
     response.headers["Cache-Control"] = "no-store"
     return await archive_page(store, page, day)
+
+
+@router.get("/lessons/{lesson_id}", response_class=HTMLResponse)
+async def lesson_page(lesson_id: str = PathParameter(pattern=r"^[a-zA-Z0-9_-]{1,128}$"),
+    page: int = Query(1, ge=1, le=400), store=Depends(get_store)):
+    record = await store.lesson(lesson_id)
+    home = f"{PREFIX}/?page={page}#archive-heading"
+    if not record:
+        return HTMLResponse('<!doctype html><html lang="en"><title>Lesson not found</title>'
+            '<h1>Lesson not found</h1><p>This saved lesson does not exist.</p>'
+            f'<a href="{home}">Back to all lessons</a></html>', status_code=404, headers=HEADERS)
+    item = expression_card(record)
+    # Inert JSON data, never executable script. Escape HTML delimiters so OCR
+    # text cannot terminate its data element or inject markup.
+    data = item.model_dump_json().replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
+    html = (ROOT / "lesson.html").read_text(encoding="utf-8")
+    html = html.replace("<!-- FIXTURE_NAV -->", navigation()).replace("<!-- LESSON_DATA -->", data)
+    html = html.replace("<!-- HOME_URL -->", home)
+    html = html.replace("<!-- PAGE_TITLE -->", escape(item.expression or item.article.title or "English lesson"))
+    return HTMLResponse(html, headers=HEADERS)

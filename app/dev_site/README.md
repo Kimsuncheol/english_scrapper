@@ -66,3 +66,10 @@ archive page read the app rebuilds its ten-day page snapshots once, so today's
 saved lesson appears without a manual indexer run. Unchanged reads reuse cached
 pages. Catalog invalidation survives process restarts. The separate daily
 schedule/discovery remains opt-in.
+
+Each saved lesson now has a dedicated page at `/lessons/{article_id}` relative to
+the development site. Homepage lesson cards and archive actions open it; back
+links preserve the archive page number. The standalone page reads the existing
+saved result and uses `lesson-reader.js`/`lesson.js`, without publisher requests
+or OCR. Homepage `scrape.js` renders compact links instead of complete lessons.
+All of these routes/assets remain opt-in.
