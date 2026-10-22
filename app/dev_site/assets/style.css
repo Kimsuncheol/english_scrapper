@@ -10,7 +10,14 @@
 .archive-table table { width: 100%; border-collapse: collapse; text-align: left; }
 .archive-table th, .archive-table td { padding: .8rem .6rem; border-bottom: 1px solid #dae1e8; }
 .archive-table td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
-#archive-page { width: 5rem; }
+.archive-pagination{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px 0;margin:12px 0;border:0}
+.archive-pagination button{min-width:42px;min-height:42px;padding:8px 12px;border:1px solid #bccdbf;border-radius:7px;background:#fffefa;color:#205945;font:inherit;cursor:pointer}
+.archive-pagination button:hover:not(:disabled){background:#eaf0e3}
+.archive-pagination button[aria-current="page"]{background:#205945;color:#fff;border-color:#205945;font-weight:750}
+.archive-pagination button:disabled:not([aria-current]){opacity:.45;cursor:default}
+.archive-pagination button:focus-visible{outline:3px solid #749d65;outline-offset:3px}
+.pagination-gap{padding:0 3px;color:#63745e}
+.pagination-position{flex-basis:100%;font-size:13px;color:#64705e;margin-top:4px}
 
 /* The reading view preserves OCR content; the exact original stays expandable. */
 .ocr-reading-view{background:#fffefa;border:1px solid #dce3d7;border-radius:12px;padding:clamp(18px,3vw,32px);margin:16px 0;max-width:100%;font-size:17px;line-height:1.95;overflow-wrap:anywhere}

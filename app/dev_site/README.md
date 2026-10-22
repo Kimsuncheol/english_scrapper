@@ -42,8 +42,8 @@ raw OCR text, and expandable original regions. The lesson day is parsed from the
 real article URL separately from its publication timestamp. Saved-day pagination
 has no fixed recent-record cutoff. Checking the source lists publisher-provided
 older dates, which can be individually loaded through the normal scrape pipeline.
-The separate historical archive lists every indexed publisher page, with page
-navigation, direct page selection and exact-date lookup back to January 2021.
+The separate historical archive lists every indexed publisher page, with numbered page
+navigation showing 10 lesson days per page back to January 2021.
 Its titles come from publisher metadata; **Open full lesson** OCRs an unsaved day
 or loads its existing complete saved output. `python -m scripts.index_archive`
 populates all pages in Firestore outside the web process; `--resume` completes an

@@ -372,27 +372,60 @@ loadSavedExpressions();
 
 const archiveStatus = document.getElementById("archive-status");
 const archiveEntries = document.getElementById("archive-entries");
-const archivePageInput = document.getElementById("archive-page");
-const archiveDay = document.getElementById("archive-day");
+const archivePagination = document.getElementById("archive-pagination");
 let archivePage = 1;
 let archivePages = 0;
-let archiveFilter = "";
 let archiveRequest = 0;
+
+function renderArchivePagination() {
+  archivePagination.replaceChildren();
+  if (!archivePages) return;
+  function button(label, page, disabled = false) {
+    const control = document.createElement("button");
+    control.type = "button";
+    control.textContent = label;
+    control.disabled = disabled;
+    if (typeof label === "number") {
+      control.setAttribute("aria-label", `Page ${page}`);
+      if (page === archivePage) control.setAttribute("aria-current", "page");
+    }
+    control.addEventListener("click", () => loadArchive(page));
+    archivePagination.append(control);
+  }
+  button("Previous", archivePage - 1, archivePage <= 1);
+  const pages = [...new Set([1, archivePages,
+    ...Array.from({length: 5}, (_, index) => archivePage - 2 + index)
+      .filter(page => page >= 1 && page <= archivePages)])].sort((a, b) => a - b);
+  let previous = 0;
+  for (const page of pages) {
+    if (previous && page - previous > 1) {
+      const gap = document.createElement("span");
+      gap.className = "pagination-gap";
+      gap.textContent = "…";
+      archivePagination.append(gap);
+    }
+    button(page, page, page === archivePage);
+    previous = page;
+  }
+  button("Next", archivePage + 1, archivePage >= archivePages);
+  const position = document.createElement("span");
+  position.className = "pagination-position";
+  position.textContent = `Page ${archivePage} of ${archivePages} · 10 days per page`;
+  archivePagination.append(position);
+}
 
 async function loadArchive(page = 1) {
   const request = ++archiveRequest;
   archiveStatus.textContent = "Loading the persistent expression archive…";
+  archivePagination.querySelectorAll("button").forEach(button => { button.disabled = true; });
   try {
     const params = new URLSearchParams({ page: String(page) });
-    if (archiveFilter) params.set("day", archiveFilter);
     const response = await fetch(`${seriesBase}/archive?${params}`, { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "Could not load the archive.");
     if (request !== archiveRequest) return;
     archivePage = data.page;
     archivePages = data.pages;
-    archivePageInput.value = String(archivePage);
-    archivePageInput.max = String(Math.max(1, archivePages));
     archiveEntries.replaceChildren();
     for (const item of data.items) {
       const row = document.createElement("tr");
@@ -420,34 +453,16 @@ async function loadArchive(page = 1) {
       archiveEntries.append(row);
     }
     archiveStatus.className = "";
-    archiveStatus.textContent = `${data.total.toLocaleString()} expression(s)${archiveFilter ? ` for ${archiveFilter}` : " in the archive"}. Page ${data.page} of ${data.pages}.`
+    archiveStatus.textContent = `${data.total.toLocaleString()} expression(s) in the archive. Page ${data.page} of ${data.pages}.`
       + ` Publisher: ${data.publisher_total ?? "unknown"} lessons; ${data.indexed_pages}/${data.expected_pages} source pages indexed.`
       + (data.checked_at ? ` Last indexed: ${new Date(data.checked_at).toLocaleString()}.` : " Run the archive indexer to populate Firestore.")
       + " Catalog titles are from the publisher; full lesson text is OCR when opened.";
-    document.getElementById("archive-first").disabled = archivePage <= 1;
-    document.getElementById("archive-prev").disabled = archivePage <= 1;
-    document.getElementById("archive-next").disabled = archivePage >= archivePages;
-    document.getElementById("archive-last").disabled = archivePage >= archivePages;
+    renderArchivePagination();
   } catch (error) {
     if (request !== archiveRequest) return;
     archiveStatus.className = "error";
     archiveStatus.textContent = error.message || "Could not load the archive. Try again later.";
+    renderArchivePagination();
   }
 }
-document.getElementById("archive-first").addEventListener("click", () => loadArchive(1));
-document.getElementById("archive-prev").addEventListener("click", () => loadArchive(Math.max(1, archivePage - 1)));
-document.getElementById("archive-next").addEventListener("click", () => loadArchive(Math.min(archivePages, archivePage + 1)));
-document.getElementById("archive-last").addEventListener("click", () => loadArchive(archivePages || 1));
-document.getElementById("archive-go").addEventListener("click", () => {
-  if (archivePageInput.checkValidity()) loadArchive(Number(archivePageInput.value));
-});
-document.getElementById("archive-find").addEventListener("click", () => {
-  if (!archiveDay.checkValidity()) return;
-  archiveFilter = archiveDay.value;
-  loadArchive(1);
-});
-document.getElementById("archive-clear").addEventListener("click", () => {
-  archiveDay.value = archiveFilter = "";
-  loadArchive(1);
-});
 loadArchive();

@@ -1727,9 +1727,9 @@ Still unverified or limited:
 ### Complete historical expression archive
 
 **All daily expressions · January 2021 onwards** lists the publisher's historical
-series entries, including unsaved lessons. Use **First / Previous / Next / Last
-page**, enter a page number (for example **143**), or **Find a lesson date** such
-as **2021-01-01**. Every row shows the issue date and the expression from the
+series entries, including unsaved lessons. Use the numbered page buttons, **Previous**, or **Next** to browse
+**10 lesson days per page**. The first and last pages (for example **143**) remain
+accessible directly; the final page can contain fewer than 10 days. Every row shows the issue date and the expression from the
 publisher's title. **Open full lesson** calls the same safe, idempotent image/OCR
 pipeline as manual scraping and displays the full saved lesson below the archive.
 An unsaved day takes longer; a saved day reuses its persisted OCR result.

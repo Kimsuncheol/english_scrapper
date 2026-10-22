@@ -11,11 +11,10 @@
 <p id="series-status" role="status" aria-live="polite"></p>
 <section aria-labelledby="archive-heading" class="archive-panel">
 <h3 id="archive-heading">All daily expressions · January 2021 onwards</h3>
-<p>Browse every indexed publisher-listed expression. Open any day to display its complete lesson OCR; previously saved lessons open without repeating OCR.</p>
+<p>Browse 10 lesson days per page, newest first. Open any day to display its complete lesson OCR; previously saved lessons open without repeating OCR.</p>
 <p id="archive-status" role="status" aria-live="polite"></p>
-<div class="scrape-controls"><label for="archive-day">Find a lesson date</label><input id="archive-day" type="date" min="2021-01-01"><button id="archive-find" type="button">Find date</button><button id="archive-clear" type="button">All dates</button></div>
+<nav id="archive-pagination" class="archive-pagination" aria-label="Lesson archive pages"></nav>
 <div class="archive-table"><table><thead><tr><th>Date</th><th>Expression (publisher title)</th><th>Full lesson</th></tr></thead><tbody id="archive-entries"></tbody></table></div>
-<div class="scrape-controls"><button id="archive-first" type="button">First page</button><button id="archive-prev" type="button">Previous page</button><label for="archive-page">Archive page</label><input id="archive-page" type="number" min="1" value="1"><button id="archive-go" type="button">Go to page</button><button id="archive-next" type="button">Next page</button><button id="archive-last" type="button">Last page</button></div>
 </section>
 <label for="series-available">Quick selection from the newest publisher page</label>
 <div class="scrape-controls"><select id="series-available" disabled><option value="">Check the series above to list available days</option></select><button id="series-load-day" type="button" disabled>Load selected day</button></div>
