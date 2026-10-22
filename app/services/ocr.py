@@ -40,6 +40,7 @@ class OCRError(ArticleFetchError):
 @dataclass(frozen=True)
 class OCRConfig:
     tessdata_dir: str | None = None
+    model_dir: str = ".ocr-models/rapidocr"
     min_confidence: float = 0.5
     max_pixels: int = 4_000_000
     max_bytes: int = 10 * 1024 * 1024
@@ -55,6 +56,7 @@ class OCRConfig:
     def from_env(cls):
         return cls(
             tessdata_dir=os.getenv("TESSDATA_PREFIX"),
+            model_dir=os.getenv("OCR_MODEL_DIR", ".ocr-models/rapidocr"),
             min_confidence=float(os.getenv("OCR_MIN_CONFIDENCE", "0.5")),
             max_pixels=int(os.getenv("OCR_MAX_PIXELS", "4000000")),
             max_bytes=int(os.getenv("OCR_MAX_BYTES", str(10 * 1024 * 1024))),
@@ -171,7 +173,7 @@ class TesseractEngine:
 
 class OCRService:
     def __init__(self, factory: Callable[[], OCREngine] | None = None):
-        self.factory = factory or (lambda: TesseractEngine(OCRConfig.from_env()))
+        self.factory = factory or create_rapidocr_engine
         self._lock = Lock()
         self._initialized = False
         self._engine = None
@@ -182,7 +184,7 @@ class OCRService:
             try:
                 self._engine = self.factory()
             except Exception as exc:
-                logger.error("OCR initialization failed (%s); check native libraries and kor/eng models", type(exc).__name__)
+                logger.error("OCR initialization failed (%s); check OCR dependencies and provisioned models", type(exc).__name__)
 
     def initialize(self) -> bool:
         with self._lock:
@@ -195,7 +197,7 @@ class OCRService:
         try:
             self._initialize_locked()
             if self._engine is None:
-                raise OCRError("ocr_unavailable", "OCR initialization failed. Check server libraries and Korean/English models.", 503)
+                raise OCRError("ocr_unavailable", "OCR initialization failed. Check server dependencies and provisioned Korean/English models.", 503)
             try:
                 return self._engine.recognize(image_bytes)
             except OCRError:
@@ -215,6 +217,12 @@ class OCRService:
                 self._engine.close()
                 self._engine = None
             self._initialized = True
+
+
+def create_rapidocr_engine():
+    # Heavy imports and model loading remain off the ASGI/health path.
+    from app.services.rapid_ocr import RapidOCREngine
+    return RapidOCREngine(OCRConfig.from_env())
 
 
 ocr_service = OCRService()

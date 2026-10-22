@@ -2,8 +2,8 @@
 
 FastAPI service that safely fetches Chosun.com articles and extracts article
 metadata and lesson-image URLs, then downloads and validates the selected image
-in memory. Tesseract recognizes Korean and English text and returns word regions
-with confidence and pixel bounding boxes. A conservative layout parser organizes
+in memory. RapidOCR with ONNX Runtime recognizes Korean and English text and
+returns text-line regions with confidence and pixel bounding boxes. A conservative layout parser organizes
 supported labeled sections into lesson fields. No request files are written at runtime.
 Manual and scheduled scraping use the same processing/persistence service.
 Results are saved in Cloud Firestore and can be retrieved through the API.
@@ -114,7 +114,7 @@ sh scripts/start-local.sh
 This local-only script sets the project, credential path, and development route
 flag; scheduling remains off. It uses installed `.ocr-models` if present and
 accepts environment overrides (`LOCAL_PORT`, `FIREBASE_PROJECT_ID`,
-`GOOGLE_APPLICATION_CREDENTIALS`, `TESSDATA_PREFIX`, `ENABLE_TEST_SITE`).
+`GOOGLE_APPLICATION_CREDENTIALS`, `OCR_MODEL_DIR`, `ENABLE_TEST_SITE`).
 Render uses its separate production start script. For Render, mount the same
 service-account key privately as `/etc/secrets/service-account.json`; the Blueprint
 already specifies the project ID and credential path. The secret itself is not
@@ -431,7 +431,7 @@ To run the test-site URL form with the emulator, leave it running and start:
 ```sh
 ENABLE_TEST_SITE=true SCRAPE_ENABLED=false \
 FIREBASE_PROJECT_ID=demo-english-scrapper FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 \
-TESSDATA_PREFIX="$PWD/.ocr-models" \
+OCR_MODEL_DIR="$PWD/.ocr-models/rapidocr" \
   .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
@@ -447,27 +447,19 @@ and restart recovery without sleeping or calling Render.
 
 ## Run locally
 
-Use Python 3.12. Install the native runtime and Korean/English language data
-before installing Python requirements. On Debian/Ubuntu:
-
-```sh
-sudo apt-get update
-sudo apt-get install libtesseract-dev libleptonica-dev g++ pkg-config tesseract-ocr-eng tesseract-ocr-kor
-export TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
-```
-
-On macOS, `brew install tesseract tesseract-lang pkgconf` supplies the runtime,
-headers, and languages (the language formula includes more than the two needed).
-Set `TESSDATA_PREFIX` to `$(brew --prefix)/share/tessdata` when using Homebrew.
-Alternatively, provision only `kor.traineddata` and `eng.traineddata` from the
-linked `tessdata_fast` repository in a local directory and point
-`TESSDATA_PREFIX` at that directory. Do this during setup, never per request.
+Use Python 3.12. The default engine is RapidOCR with CPU ONNX Runtime and
+headless OpenCV. No Tesseract installation, GPU, PaddlePaddle, or PyTorch is
+required. Provision the pinned Korean/English ONNX models once during setup;
+requests and server startup never download models. See
+[OCR models and deployment](docs/ocr-models.md) for licenses and resource limits.
 
 Then, from the repository root:
 
 ```sh
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python scripts/prepare_ocr_models.py
+export OCR_MODEL_DIR="$PWD/.ocr-models/rapidocr"
 # Use a separate development Firebase project and server credentials.
 export FIREBASE_PROJECT_ID='your-dev-project-id'
 export GOOGLE_APPLICATION_CREDENTIALS='/absolute/path/to/service-account.json'
@@ -534,7 +526,7 @@ raw OCR), or the API error. Submitting this form performs real external fetching
 and OCR; the four fixture links remain offline. Configure `FIREBASE_PROJECT_ID` and server credentials for
 Cloud Firestore and install the Korean/English OCR models as described
 above before submitting. For locally provisioned models, also set
-`TESSDATA_PREFIX="$PWD/.ocr-models"` when starting the server. Duplicate URLs use
+`OCR_MODEL_DIR="$PWD/.ocr-models/rapidocr"` when starting the server. Duplicate URLs use
 the existing saved result. The form does not enable local URL fetching or bypass
 API host validation. Keep `ENABLE_TEST_SITE=false` in production.
 
@@ -752,11 +744,11 @@ a valid article image or OG fallback.
 | --- | --- |
 | Browse/curl the fixture HTML pages | The pure article parser displays metadata and selected-image information. OCR is not invoked. |
 | Run `tests/test_local_fixture_e2e.py` | Real fixture HTML/PNG routes and image validation run. A mocked OCR service receives the validated PNG bytes and returns the fixed original text/boxes in `tests/fixtures/lesson_ocr_original_six_sections.json`. Results use an in-memory persistence double. |
-| Submit an approved real article to the ordinary `/api/v1/scrape` endpoint | Real Korean/English Tesseract OCR runs on the downloaded image; configured language files and configured Firestore credentials are required. |
+| Submit an approved real article to the ordinary `/api/v1/scrape` endpoint | Real Korean/English RapidOCR runs on the downloaded image; configured language files and configured Firestore credentials are required. |
 
 Mocked OCR has deterministic text, confidence and bounding boxes, even if the
 fixture image's visible words differ. It tests pipeline wiring, reading order and
-field assignment, not recognition accuracy. It never initializes Tesseract or
+field assignment, not recognition accuracy. It never initializes an OCR engine or
 downloads models. Real OCR can misread text, vary in confidence, and return partial
 or empty results; it must be checked separately with provisioned models. There is
 no runtime `MOCK_OCR` flag or curl-accessible mock-OCR endpoint.
@@ -838,7 +830,7 @@ A successful scrape returns HTTP 200:
 - `ocr`: combined `raw_text`, word `regions`, `mean_confidence`, `status`, `engine`,
   and `warnings`. Each region has `text`, `confidence` (0–1), `low_confidence`,
   and `bounding_box: {x, y, width, height}` in original-image pixels from the top
-  left. Regions retain Tesseract reading order; words on the same line are joined.
+  left. Regions retain engine reading order; RapidOCR regions are detected text lines.
   `korean_text`/`english_text` remain `null`: recognition uses both languages
   together. Structured lesson sections are provided separately in `lesson`.
 
@@ -910,7 +902,7 @@ The example timing and byte count are illustrative, not benchmark results.
     "raw_text": "Expression\nDon't sweat it.\n뜻\n걱정하지 마.",
     "korean_text": null,
     "english_text": null,
-    "engine": "tesseract",
+    "engine": "rapidocr-onnx",
     "status": "ok",
     "mean_confidence": 0.97,
     "regions": [
@@ -1221,11 +1213,9 @@ No article ID, date or expression is hardcoded into production selection logic.
 Tests for this case use local/mocked fixtures rather than repeatedly calling
 Chosun. The one live verification does not prove a Render daily run has occurred.
 
-Local verification provisioned the official small `tessdata_fast` Korean/English
-files once under ignored `.ocr-models/` and set
-`TESSDATA_PREFIX="$PWD/.ocr-models"` before starting Python. This is optional local
-setup, not a runtime model downloader. Render continues to use its build-time
-language packages. Actual unattended runs still need the Firebase project/credentials, enabled
+That historical verification used Tesseract fast language files. The current
+RapidOCR engine instead uses the one-time model setup in
+[OCR models and deployment](docs/ocr-models.md); Docker packages those models at build time. Actual unattended runs still need the Firebase project/credentials, enabled
 schedule, trigger secret and external scheduler described above.
 
 ## Image selection
@@ -1417,9 +1407,10 @@ measurements on Render.
 
 | Engine | Model size for a practical Korean/English setup | System/runtime requirements | CPU, RAM, startup and Free suitability |
 | --- | --- | --- | --- |
+| **RapidOCR + ONNX Runtime (chosen)** | Pinned PP-OCRv5 mobile detector + Korean/English recognizer: 17.46 MiB combined ONNX files. | CPU ONNX Runtime, headless OpenCV, NumPy; Debian `libgomp1` and CA certificates. No Torch/Paddle/Tesseract runtime. | Single-threaded inference, batch size one, models loaded once. Local synthetic check peaked around 380–387 MiB; Render/Linux memory and accuracy remain unmeasured. |
 | PaddleOCR | A documented PP-OCRv5 mobile option uses a 4.7 MB detector plus a 14 MB Korean recognizer that also supports English; newer/model variants differ. | PaddlePaddle native inference runtime, NumPy/OpenCV and platform-dependent shared libraries; no GPU required for CPU mode. Optional orientation/unwarping adds models. | Compact weights do not imply compact total RSS. Framework import, detector/recognizer initialization, and activations add CPU/RAM and cold-start work. Possible with careful tuning, but not the smallest deployment here and not validated in 512 MB. |
 | EasyOCR | Published CRAFT ZIP is 73.7 MB plus `korean_g2` ZIP at 14.2 MB (about 88 MB compressed); extracted weights are larger. This excludes PyTorch and other dependencies. | PyTorch/torchvision, OpenCV-headless, NumPy/SciPy and other native wheels; CPU mode uses `gpu=False`. Pre-provision weights and disable downloads for deployment. | Two neural networks plus the PyTorch runtime add memory/import/model-load cost. CPU inference is supported, but a 512 MB service is a risky default without profiling. |
-| **Tesseract (chosen)** | `tessdata_fast`: Korean about 1.6 MB + English about 3.92 MB (about 5.5 MB total language data). | Native Tesseract/Leptonica plus the small `tesserocr` binding; existing Pillow supplies in-memory pixels. No Torch/Paddle, CUDA, or detector checkpoint. | Smallest practical total dependency/model footprint for this repository; one CPU engine and modest initialization work. CPU time and layout accuracy still depend on image size. Most plausible Free baseline, not a measured performance guarantee. |
+| Tesseract (previous baseline) | `tessdata_fast`: Korean about 1.6 MB + English about 3.92 MB (about 5.5 MB total language data). | Native Tesseract/Leptonica plus the small `tesserocr` binding; existing Pillow supplies in-memory pixels. No Torch/Paddle, CUDA, or detector checkpoint. | Smallest practical total dependency/model footprint for this repository; one CPU engine and modest initialization work. CPU time and layout accuracy still depend on image size. Most plausible Free baseline, not a measured performance guarantee. |
 
 Sources: [PaddleOCR model tables](https://www.paddleocr.ai/main/en/version3.x/pipeline_usage/OCR.html),
 [EasyOCR model hub](https://jaided.ai/easyocr/modelhub/),
@@ -1430,20 +1421,18 @@ Sources: [PaddleOCR model tables](https://www.paddleocr.ai/main/en/version3.x/pi
 [Tesseract English fast data](https://github.com/tesseract-ocr/tessdata_fast/blob/main/eng.traineddata),
 [fast-model tradeoffs](https://tesseract-ocr.github.io/tessdoc/tessdata_fast.html).
 
-Tesseract is selected for deployment size and operational simplicity, not a claim
-of superior Korean recognition. Neural engines may handle complex graphics or
-rotated text better. Evaluate representative lesson graphics before making an
-accuracy claim. Keep original regions and confidence so uncertain text can be
-reviewed. Confidence is a native engine score normalized to 0–1, not a calibrated
-probability of correctness.
+**RapidOCR + ONNX Runtime is now selected** with the PP-OCRv5 mobile detector
+and the Korean recognizer (also supports English/numbers). The two verified ONNX
+files total 17.46 MiB. It avoids Paddle/PyTorch, and provides text-line boxes and
+confidence through the existing service interface. This is a user-selected neural
+OCR alternative, not a proven accuracy improvement. Its total memory footprint
+is greater than the earlier Tesseract baseline and still needs Render profiling.
+See [model setup, license notices, offline smoke results, and deployment limits](docs/ocr-models.md).
 
-`tesserocr.PyTessBaseAPI` is used instead of a per-request CLI wrapper so both
-language models are loaded **once per process**. The `OCREngine` protocol exposes
-`recognize(bytes) -> OCRText` and `close()`; a replacement engine can be supplied
-to `OCRService(factory=...)`. The Tesseract adapter accepts only verified raster
-formats, passes Pillow pixel buffers in memory, and clears request images/results
-while retaining its language models. It creates no image or TSV files.
-[tesserocr API and reuse](https://github.com/sirfz/tesserocr).
+`OCREngine` exposes `recognize(bytes) -> OCRText` and `close()`; the process-wide
+`OCRService` now creates `RapidOCREngine`. Input pixels stay in memory. Historical
+saved Tesseract results remain unchanged and idempotently reused; this change
+does not automatically reprocess the archive.
 
 ## OCR lifecycle, limits and results
 
@@ -1453,53 +1442,55 @@ lock; subsequent requests reuse it. Initialization failures
 are logged and cached, never retried or silently downgraded to English-only.
 Scraping returns `503 ocr_unavailable`; restart after fixing libraries/model paths.
 `/health` remains a liveness check, not a guarantee that OCR is available.
-The binding is imported on the main ASGI thread because its `cysignals` dependency
-registers signal handlers; model initialization and OCR run in worker threads.
-Native resources are released at process exit.
+RapidOCR/ONNX imports, model initialization and OCR run in a worker thread.
+Native resources are released at process exit; health does not import the neural runtime.
 
 OCR runs in a worker thread, with one engine call at a time. The default
 whole-request admission limit rejects a competing scrape with `503 scrape_busy`
 before fetching. If request concurrency is explicitly raised, competing OCR
-calls still receive `503 ocr_busy` rather than sharing the engine concurrently. `OMP_THREAD_LIMIT=1`
-limits native OpenMP threads in the supplied image. State is cleared between
-images to avoid carrying recognition adaptation across requests.
+calls still receive `503 ocr_busy` rather than sharing the engine concurrently.
+ONNX intra/inter-operation thread counts and OpenCV threads are fixed at one;
+recognition uses batch size one and CPU memory arenas are disabled.
 
 | Setting | Default | Behavior |
 | --- | --- | --- |
-| `TESSDATA_PREFIX` | Auto-detect known system paths; explicit in Docker | Directory containing both `kor.traineddata` and `eng.traineddata` |
+| `OCR_MODEL_DIR` | `.ocr-models/rapidocr`; `/app/.ocr-models/rapidocr` in Docker | Directory containing the two checksum-verified ONNX files |
 | `OCR_MAX_PIXELS` | 4,000,000 | Reject larger inputs with `422 ocr_image_too_large` before native OCR |
 | `OCR_MIN_CONFIDENCE` | 0.5 | Flag uncertain regions and low average confidence |
-| `OCR_TIMEOUT_MS` | 30,000 | Native cooperative recognition deadline |
+| `OCR_TIMEOUT_MS` | 30,000 | Shared cooperative deadline across ONNX runs; not a hard process timeout |
 
 The OCR byte cap defaults to 10 MiB via `OCR_MAX_BYTES` / `OCRConfig.max_bytes`. The OCR pixel limit is
 intentionally lower than the downloader's 16-million-pixel decode limit: native
 OCR needs additional image and segmentation buffers. Large lessons may be
-rejected; increasing this limit without profiling can exhaust Free memory. The
-service does not resize images silently, so returned boxes use original pixels.
-The native deadline is cooperative and does not hard-kill the process; recognition
-failure or deadline cancellation returns `504 ocr_recognition_failed`.
+rejected; increasing this limit without profiling can exhaust Free memory.
+RapidOCR may resize working images (2000-pixel long side) and detection maps
+(960-pixel long side); returned boxes are mapped back to original input pixels.
+ONNX cancellation is cooperative and does not hard-kill the process. Model
+initialization and Python pre/post-processing cannot be forcibly cancelled;
+a recognition deadline returns `504 ocr_recognition_failed`.
 
 Low-confidence regions are retained and flagged. `status: low_confidence` means
-the mean valid word confidence is below the threshold; individual low scores may
-also appear with overall `status: ok`, accompanied by a warning. No valid words
+the mean valid region confidence is below the threshold; individual low scores may
+also appear with overall `status: ok`, accompanied by a warning. No valid regions
 returns HTTP 200 with `status: empty`, `raw_text: ""`, empty regions, null mean
 confidence, and a warning. These outcomes preserve article/image metadata.
 Malformed native output or unexpected engine errors return `500 ocr_failed`;
 invalid OCR inputs return `422 ocr_invalid_image`.
 
-Normalization tests use mocked TSV/API outputs and require no downloaded models.
-They cover Korean/English words, boxes, confidence filtering, empty output,
-initialization caching, request cleanup, and concurrent admission. A real local
-macOS smoke check also recognized `안녕하세요 Hello English`
-from a generated image on two successive calls through the same native engine.
-This confirms bilingual engine wiring, not accuracy on publisher graphics. Render
-peak RSS/latency and lesson accuracy still require deployment profiling.
+Normalization and endpoint tests use mocked engine outputs without downloaded
+models. They cover Korean/English punctuation, reading order, boxes, uncertain
+and empty output, model integrity, initialization reuse, limits, cooperative
+cancellation, and persistence/idempotency. The optional offline real-model check
+recognizes Korean and English from the synthetic fixture twice with sockets
+blocked. Local timings and memory observations are documented in
+[OCR model setup](docs/ocr-models.md); they do not establish publisher accuracy or
+Render Free memory fit.
 
 ## Render Free deployment
 
 Deploy this repository as a **Docker Web Service**, not Render's native Python
-runtime. The existing OCR binding needs system libraries and language files that
-`pip install` alone cannot supply. `render.yaml` describes this same Docker
+runtime. Docker provisions verified ONNX models at build time and installs the
+CPU runtime library `libgomp1`. `render.yaml` describes this same Docker
 approach with `plan: free`, `/health`, and conservative environment settings. It
 creates one web service with no disk, provisioned database, separate worker, or
 GPU. Manual/scheduled persistence requires external Firestore credentials. The
@@ -1511,23 +1502,19 @@ The builder and runtime both use **Python 3.12 on Debian Bookworm** via
 `python:3.12-slim-bookworm`. The minor-series image tag intentionally receives
 Python/security patch updates; it is not an immutable image digest. All Python
 runtime dependencies, including transitive dependencies, are pinned exactly in
-`requirements.txt` (notably `tesserocr==2.11.0` and `pillow==13.0.0`). Development
+`requirements.txt` (notably `rapidocr==3.10.0`, `onnxruntime==1.31.0`, and `pillow==13.0.0`). Development
 dependencies remain separate. Debian packages track Bookworm security updates;
 the build is not bit-for-bit reproducible against a frozen apt snapshot.
 
 The multi-stage `Dockerfile`:
 
-1. Installs **builder-only** `g++`, `pkg-config`, `libtesseract-dev`, and
-   `libleptonica-dev`. It builds Python wheels, compiling `tesserocr` against the
-   Debian libraries with `--no-binary=tesserocr`.
-2. Installs **runtime** `libtesseract5`, `liblept5`, `tesseract-ocr-eng`, and
-   `tesseract-ocr-kor` using `--no-install-recommends`. The language packages
-   supply fast data under `/usr/share/tesseract-ocr/5/tessdata`.
-3. Installs the wheels and copies the application/start script. A build-time
-   assertion checks that both Korean and English models can initialize. A missing
-   binding, library, or model fails the image build rather than downloading data
-   on startup.
-4. Runs as an unprivileged user. The compiler/headers remain in the builder stage.
+1. Builds/downloads pinned Python wheels, including CPU ONNX Runtime and headless
+   OpenCV. No Tesseract compiler, headers or language packages are needed.
+2. Installs runtime `libgomp1` and `ca-certificates`, then the Python wheels.
+3. Downloads the pinned detector and Korean recognizer during the build, verifies
+   SHA-256 hashes, and checks OCR initialization. Weights and license notices are
+   packaged in the image; failed model provisioning fails the build.
+4. Runs as an unprivileged user with one Uvicorn worker.
 
 No image or model is downloaded during service startup or from a health request.
 Application requests download only the submitted article and selected lesson
@@ -1615,7 +1602,7 @@ triggers also require `SCRAPE_TRIGGER_TOKEN` as described above.
 | `FIRESTORE_DATABASE` | `(default)` | Optional Render Environment override |
 | `GOOGLE_APPLICATION_CREDENTIALS` | `/etc/secrets/service-account.json` | Path to privately mounted Render secret file |
 | `PORT` | Render-selected port | Render automatically; leave unset |
-| `TESSDATA_PREFIX` | `/usr/share/tesseract-ocr/5/tessdata` | Docker image and Blueprint |
+| `OCR_MODEL_DIR` | `/app/.ocr-models/rapidocr` | Docker image and Blueprint |
 | `OMP_THREAD_LIMIT` | `1` | Docker image and Blueprint |
 | `SCRAPE_MAX_CONCURRENT_REQUESTS` | `1` | Application default and Blueprint |
 | `SCRAPE_TIMEOUT_SECONDS` | `90` | Application default and Blueprint |
@@ -1665,18 +1652,16 @@ The **build pipeline is separate from the Free web-service runtime**. Render
 currently documents Starter pipeline workers as 2 CPU / 8 GB RAM, with a 16 GB
 build disk limit and 120-minute build timeout. Hobby workspaces use this tier and
 currently include 500 Starter pipeline minutes per month. These are build
-resources, not RAM/CPU available to running OCR. Source-compiling `tesserocr`,
+resources, not RAM/CPU available to running OCR. Downloading verified ONNX models,
 apt/pip network access and an uncached image build can consume several minutes;
 there is no measured build-time promise here. Review billing/spend-limit settings
 and remaining pipeline minutes before repeated rebuilds. This repository does
 not request the paid Performance pipeline tier.
 [Render build pipeline](https://render.com/docs/build-pipeline).
 
-If building fails, inspect the package/compiler output: the multi-stage build
-must use the same Debian/Python base in both stages and install the listed dev
-headers before compiling. If the OCR initialization assertion fails, verify the
-runtime packages and `TESSDATA_PREFIX`; do not compensate with startup model
-downloads. At runtime, `ocr_unavailable` requires fixing/rebuilding the image or
+If building fails, inspect wheel installation, HTTPS model downloads, and hash
+verification. If initialization fails, verify CPU ONNX Runtime, `libgomp1`, and
+`OCR_MODEL_DIR`; do not compensate with startup model downloads. At runtime, `ocr_unavailable` requires fixing/rebuilding the image or
 its model path; `scrape_busy`/`ocr_busy` can be retried after active work completes.
 Out-of-memory restarts or repeated deadlines require smaller inputs/lower limits
 or separately hosted OCR; adding workers makes the Free memory problem worse.
@@ -1778,7 +1763,7 @@ The progress counts remain visible on the site even after a partial import.
 
 The indexer runs outside the sleeping Render Free web service. It needs no paid
 worker, runtime model downloads, or persistent disk. It indexes metadata only,
-so it does not start Tesseract or download 1,425 lesson images. A full refresh
+so it does not start OCR or download 1,425 lesson images. A full refresh
 currently writes roughly 1,425 catalog records plus 143 checkpoint updates and 143 page snapshots;
 account for Firestore read/write quotas before repeatedly rebuilding it. Normal
 browsing returns ten entries using two Firestore document reads (state and page),

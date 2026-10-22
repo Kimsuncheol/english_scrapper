@@ -126,7 +126,7 @@ A complete, original synthetic response is available in
 [examples/scrape-response.json](examples/scrape-response.json). It includes all
 six labeled lesson sections and bounding boxes. Its URLs, timing and image
 metadata are illustrative; `engine: "mock"` identifies fixture data, not a real
-publisher OCR result. Production OCR uses `engine: "tesseract"`.
+publisher OCR result. New production OCR uses `engine: "rapidocr-onnx"`; historical saved results may use `tesseract`.
 
 ### Idempotency and concurrent requests
 
@@ -190,21 +190,21 @@ article URL, rather than treating `published_at` as the lesson day.
 | --- | --- | --- |
 | `raw_text` | string | Combined OCR text with line breaks; not publisher-native text |
 | `korean_text`, `english_text` | string or null | Optional language-specific outputs; current normalizer leaves these null |
-| `engine` | string | `tesseract` in the real implementation |
+| `engine` | string | `rapidocr-onnx` for new results; historical results may use `tesseract` |
 | `status` | `ok`, `low_confidence`, `empty` | Recognition outcome |
 | `mean_confidence` | number 0–1 or null | Mean recognized region confidence; null when empty |
-| `regions` | array of `OCRRegion` | Normalized word regions in engine traversal order |
+| `regions` | array of `OCRRegion` | Normalized text regions in engine reading order (RapidOCR lines; legacy Tesseract words) |
 | `warnings` | string array | Recognition limitations requiring review |
 
 Each `OCRRegion` contains `text`, `confidence` (0–1), `bounding_box` and
 `low_confidence` (boolean). A bounding box is
 `{"x":48,"y":100,"width":120,"height":24}`: pixels from the decoded image's
 top-left, x increasing rightward and y downward. Width/height are positive,
-x/y nonnegative. The current engine does not resize the input before recognition.
-`raw_text` joins words within OCR lines and joins lines with newlines. “Raw” here
-means retained normalized OCR, not an unmodified Tesseract TSV export. Low
-confidence words remain available. An `ok` mean does not guarantee every word is
-reliable.
+x/y nonnegative. RapidOCR may resize working images; boxes are mapped back to
+original input pixels. `raw_text` joins recognized lines with newlines. “Raw” here
+means retained normalized OCR, not an unmodified engine export. Low
+confidence regions remain available. An `ok` mean does not guarantee every region
+is reliable.
 
 `LessonParsingResult` contains:
 

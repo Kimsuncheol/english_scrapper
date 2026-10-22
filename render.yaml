@@ -1,4 +1,4 @@
-# Docker installs native OCR libraries and models during the image build.
+# Docker installs ONNX Runtime and pinned OCR models during the image build.
 # The Docker CMD runs scripts/start.sh; no separate build/start override needed.
 services:
   - type: web
@@ -15,8 +15,8 @@ services:
         value: "(default)"
       - key: GOOGLE_APPLICATION_CREDENTIALS
         value: /etc/secrets/service-account.json
-      - key: TESSDATA_PREFIX
-        value: /usr/share/tesseract-ocr/5/tessdata
+      - key: OCR_MODEL_DIR
+        value: /app/.ocr-models/rapidocr
       - key: OMP_THREAD_LIMIT
         value: "1"
       - key: SCRAPE_MAX_CONCURRENT_REQUESTS
