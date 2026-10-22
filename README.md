@@ -1780,12 +1780,17 @@ currently writes roughly 1,425 catalog records plus 143 checkpoint updates and 1
 account for Firestore read/write quotas before repeatedly rebuilding it. Normal
 browsing returns ten entries using two Firestore document reads (state and page),
 including direct jumps to page 143; it avoids expensive skipped-document offset
-reads. Publishing loads the small metadata catalog once in the operator process
-and writes one snapshot document per page. Full OCR runs only when a day is
-opened. Newly saved series lessons from manual/daily processing also join the
-catalog and exact-date lookup immediately; the paginated archive is a dated
-snapshot, refreshed by rerunning the full indexer. This also catches other missed
-historical days.
+reads. A catalog change increments a durable revision. The next archive page
+request notices that revision and atomically rebuilds the small metadata snapshot,
+so newly saved manual/daily lessons appear in date order without an operator
+reindex. Unchanged page reads reuse the existing snapshot; a rebuild reads the
+bounded catalog once and writes one snapshot document per page. Revision state
+survives restarts, and publication reads the revision/catalog in the same database
+transaction to avoid losing concurrent changes. During another publication or an
+incomplete import the previous complete snapshot remains available and later
+reads retry. Full OCR runs only when a day is opened. The full indexer still
+catches publisher-listed historical days that have never been discovered/saved.
+This refresh does not enable automatic Chosun discovery or the daily schedule.
 The existing protected external daily job remains responsible for unattended
 new-lesson processing; enabling the archive does not enable an unreliable
 in-process timer on Render Free.

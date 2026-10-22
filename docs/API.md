@@ -534,8 +534,13 @@ Archive pagination reads a published Firestore metadata snapshot sorted by issue
 date descending with a document-ID tie-breaker. `total` is its saved entry count,
 not the number already OCR-processed. `publisher_total` is the publisher's recorded
 count; `indexed_pages`/`expected_pages` show import progress. Exact-date lookup
-queries catalog entries directly and can find a newly saved day before the
-paginated snapshot is rebuilt. Publication timestamps and issue dates can differ.
+queries catalog entries directly. New manual/scheduled saves mark the catalog
+revision as changed; the next paginated archive read atomically refreshes the
+snapshot without requiring a manual full reindex. Ordinary reads reuse unchanged
+pages. Revision state persists across restarts. A concurrent publication or an
+incomplete import keeps the prior complete snapshot available for later retry.
+Publication timestamps and issue dates can differ. This does not enable scheduled
+discovery when `SCRAPE_ENABLED=false`.
 The operator command `python -m scripts.index_archive` refreshes all source pages
 and publishes the snapshot; `--resume` finishes an interrupted import. There is
 no HTTP bulk-index trigger. See the README for Firestore credentials and limits.

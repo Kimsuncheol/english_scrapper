@@ -325,3 +325,65 @@ def test_archive_page_replay_durable_pagination_and_first_day_lookup():
         assert (await archive_page(replacement, 1, date(2021, 1, 2))).total == 0
         await replacement.close()
     asyncio.run(run())
+
+
+def test_new_saved_day_automatically_reaches_paginated_archive_after_restart():
+    from app.services.archive import sync_archive_page, parse_feed
+    from app.services.saved import process_and_store
+    from test_archive import fixture
+    async def run():
+        store = await make_store()
+        await sync_archive_page(store, 1, fetch=AsyncMock(return_value=parse_feed(fixture(1), 1)))
+        state = store.collection("archive_state").document("series")
+        await state.update({"publisher_total": 10, "expected_pages": 1})
+        assert await store.publish_archive() == 10
+        old_publication = (await state.get()).to_dict()["published_at"]
+        today = ONE.replace('/2026/10/21/ONE/', '/2026/10/22/TODAY/')
+        value = result(today)
+        value.article.title = '[스피킹이 강해지는 영어] An original new lesson'
+        processor = AsyncMock(return_value=value)
+        _, created = await process_and_store(store, today, processor)
+        assert created
+        dirty = (await state.get()).to_dict()
+        assert dirty['catalog_revision'] > dirty['published_revision']
+        assert dirty['published_at'] == old_publication
+        # No background memory flag is required: a replacement process notices
+        # the committed revision and refreshes pages on the next archive read.
+        await store.close()
+        replacement = FirestoreStore(store.project, prefix=store.prefix)
+        replacement.publish_archive = AsyncMock(wraps=replacement.publish_archive)
+        first = await replacement.archive_entries(1)
+        second = await replacement.archive_entries(2)
+        assert first['total'] == 11 and len(first['items']) == 10
+        assert first['items'][0]['issue_date'] == '2026-10-22'
+        assert len(second['items']) == 1
+        urls = [row['article_url'] for row in first['items'] + second['items']]
+        assert len(set(urls)) == 11
+        _, created = await process_and_store(replacement, today, processor)
+        assert not created
+        processor.assert_awaited_once()
+        await replacement.archive_entries(1)
+        replacement.publish_archive.assert_awaited_once()
+        await replacement.close()
+    asyncio.run(run())
+
+
+def test_archive_import_preserves_published_snapshot_until_complete():
+    from app.services.archive import sync_archive_page, parse_feed
+    from test_archive import fixture
+    async def run():
+        store = await make_store()
+        first = parse_feed(fixture(1), 1)
+        await sync_archive_page(store, 1, fetch=AsyncMock(return_value=(first[0], 10)))
+        await store.publish_archive()
+        prior = await store.archive_entries()
+        # A source update reports another page before that page is committed.
+        await sync_archive_page(store, 1, fetch=AsyncMock(return_value=(first[0], 11)))
+        during = await store.archive_entries()
+        assert during['total'] == 10 and during['checked_at'] == prior['checked_at']
+        assert during['items'] == prior['items']
+        snapshot = (await store.collection('archive_state').document('series').get()).to_dict()
+        assert snapshot['published_total'] == 10
+        assert snapshot['catalog_revision'] > snapshot['published_revision']
+        await store.close()
+    asyncio.run(run())

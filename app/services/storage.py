@@ -201,8 +201,9 @@ class FirestoreStore:
                 row["canonical_url"] = str(item.article_url)
                 row["updated_at"] = now
                 tx.set(self.collection("archive").document(identifier(row["canonical_url"])), row)
-            tx.set(ref, {"publisher_total": total, "expected_pages": (total + 9) // 10,
-                "indexed_page_numbers": pages, "checked_at": now})
+            tx.set(ref, {**state, "publisher_total": total, "expected_pages": (total + 9) // 10,
+                "indexed_page_numbers": pages, "checked_at": now,
+                "catalog_revision": state.get("catalog_revision", 0) + 1})
         await lease.transaction(operation)
 
     async def publish_archive(self):
@@ -210,33 +211,53 @@ class FirestoreStore:
 
         Avoid Firestore offset billing (walking 143 offset pages would reread
         over 100,000 skipped documents). The bounded 4,000-entry catalog is
-        loaded once by the operator indexer, never by a web request.
+        loaded only when catalog contents change, not on ordinary page reads.
         """
         async with self.lease("series-archive") as lease:
             if lease is None:
                 raise ArticleFetchError("archive_busy", "Archive refresh is already running. Retry shortly.", 503)
             try:
-                rows = [s.to_dict() async for s in self.collection("archive").order_by("issue_date", direction="DESCENDING").order_by("__name__", direction="DESCENDING").stream(**RPC)]
-                if len(rows) > 4000:
-                    raise ArticleFetchError("archive_too_large", "Archive exceeds its configured catalog limit.")
                 ref = self.collection("archive_state").document("series")
                 async def operation(tx):
                     state = (await ref.get(transaction=tx, **RPC)).to_dict() or {}
+                    # Read state and catalog in the same transaction. A concurrent
+                    # catalog insertion also increments state, forcing a retry;
+                    # it cannot be marked published without its entry present.
+                    rows = [s.to_dict() async for s in self.collection("archive").order_by("issue_date", direction="DESCENDING").order_by("__name__", direction="DESCENDING").stream(transaction=tx, **RPC)]
+                    if len(rows) > 4000:
+                        raise ArticleFetchError("archive_too_large", "Archive exceeds its configured catalog limit.")
                     if len(rows) < state.get("publisher_total", 0):
                         raise ArticleFetchError("archive_incomplete", "Archive count is below the publisher count; run a full refresh.")
                     for start in range(0, len(rows), 10):
                         items = [{k: row[k] for k in ("article_url", "title", "expression", "issue_date")} for row in rows[start:start + 10]]
                         tx.set(self.collection("archive_pages").document(str(start // 10 + 1)), {"items": items})
-                    tx.set(ref, {**state, "published_total": len(rows), "published_at": datetime.now(timezone.utc)})
-                await lease.transaction(operation)
-                return len(rows)
+                    tx.set(ref, {**state, "published_total": len(rows), "published_at": datetime.now(timezone.utc),
+                        "published_revision": state.get("catalog_revision", 0)})
+                    return len(rows)
+                return await lease.transaction(operation)
             except STORAGE_ERRORS as exc:
                 raise StorageUnavailable() from exc
+
+    async def ensure_archive_published(self, state):
+        if state.get("catalog_revision", 0) == state.get("published_revision", 0):
+            return False
+        try:
+            await self.publish_archive()
+            return True
+        except ArticleFetchError as exc:
+            # Keep the previous complete snapshot available during another
+            # publisher or an unfinished import. The dirty revision remains
+            # persisted so a later page read can retry, even after restart.
+            if exc.code in {"archive_busy", "archive_incomplete"}:
+                return False
+            raise
 
     async def archive_entries(self, page=1, day=None):
         await self.initialize()
         try:
             state = (await self.collection("archive_state").document("series").get(**RPC)).to_dict() or {}
+            if not day and await self.ensure_archive_published(state):
+                state = (await self.collection("archive_state").document("series").get(**RPC)).to_dict() or {}
             if day:
                 query = self.collection("archive").where(filter=FieldFilter("issue_date", "==", day.isoformat()))
                 count = (await query.count().get(**RPC))[0][0].value
@@ -370,22 +391,26 @@ class RunSession:
         encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         if len(encoded.encode("utf-8")) > 800_000:
             raise ArticleFetchError("result_too_large", "OCR result exceeds the Firestore storage limit.", 413)
+        from app.services.series import issue_date_from_url
+        day = issue_date_from_url(canonical)
+        title = result.article.title or ""
+        catalog = {"canonical_url": canonical, "article_url": canonical,
+            "title": title, "expression": SERIES_TITLE.sub("", title).strip(),
+            "issue_date": day.isoformat()} if day and SERIES_TITLE.match(title) else None
         async def operation(tx):
             existing = await ref.get(transaction=tx, **RPC)
+            archive_ref = self.store.collection("archive").document(identifier(canonical))
+            archive = (await archive_ref.get(transaction=tx, **RPC)).to_dict() if catalog else None
+            # All reads precede writes, as required by Firestore transactions.
             if not existing.exists:
                 now = datetime.now(timezone.utc)
                 tx.set(ref, {"id": lesson_id, "canonical_url": canonical, "payload_json": encoded,
                     "article": payload["article"], "processing_status": payload["processing"]["status"],
                     "created_at": now, "updated_at": now})
-            # New manual/scheduled lessons join the same historical catalog.
-            from app.services.series import issue_date_from_url
-            day = issue_date_from_url(canonical)
-            title = result.article.title or ""
-            if day and SERIES_TITLE.match(title):
-                tx.set(self.store.collection("archive").document(identifier(canonical)), {
-                    "canonical_url": canonical, "article_url": canonical,
-                    "title": title, "expression": SERIES_TITLE.sub("", title).strip(),
-                    "issue_date": day.isoformat(), "updated_at": datetime.now(timezone.utc)})
+            if catalog and (not archive or any(archive.get(key) != value for key, value in catalog.items())):
+                tx.set(archive_ref, {**catalog, "updated_at": datetime.now(timezone.utc)})
+                tx.set(self.store.collection("archive_state").document("series"),
+                    {"catalog_revision": firestore.Increment(1)}, merge=True)
             tx.update(self.queue(url), {"state": "succeeded", "error_code": None, "lesson_id": lesson_id})
             return not existing.exists
         return await self.transaction(operation)

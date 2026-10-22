@@ -60,3 +60,9 @@ JSON and raw region diagnostics for correction. The plain-text panel retains
 original line breaks for the remaining lesson text. JavaScript layout regressions
 run through `tests/test_ocr_reading_ui.py` when Node.js is available, without
 external HTTP or model initialization.
+
+Newly saved series lessons invalidate the persisted archive revision. On the next
+archive page read the app rebuilds its ten-day page snapshots once, so today's
+saved lesson appears without a manual indexer run. Unchanged reads reuse cached
+pages. Catalog invalidation survives process restarts. The separate daily
+schedule/discovery remains opt-in.

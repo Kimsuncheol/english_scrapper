@@ -168,3 +168,21 @@ def test_json_feed_uses_existing_network_guards(monkeypatch):
     with pytest.raises(ArticleFetchError) as error:
         asyncio.run(article.fetch_article(archive.FEED, transport=httpx.MockTransport(redirect), listing=True, json_response=True))
     assert error.value.code == 'unsafe_url'
+
+
+def test_snapshot_revision_only_rebuilds_changed_catalog_and_retains_retry_state():
+    from app.services.storage import FirestoreStore
+    async def run():
+        store = FirestoreStore('demo-test-not-initialized')
+        store.publish_archive = AsyncMock(return_value=11)
+        assert not await store.ensure_archive_published({})
+        assert not await store.ensure_archive_published({'catalog_revision': 1, 'published_revision': 1})
+        store.publish_archive.assert_not_awaited()
+        assert await store.ensure_archive_published({'catalog_revision': 2, 'published_revision': 1})
+        for code in ('archive_busy', 'archive_incomplete'):
+            store.publish_archive.side_effect = ArticleFetchError(code, 'Retry later.', 503)
+            assert not await store.ensure_archive_published({'catalog_revision': 2, 'published_revision': 1})
+        store.publish_archive.side_effect = ArticleFetchError('storage_unavailable', 'Unavailable.', 503)
+        with pytest.raises(ArticleFetchError):
+            await store.ensure_archive_published({'catalog_revision': 2, 'published_revision': 1})
+    asyncio.run(run())
