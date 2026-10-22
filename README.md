@@ -556,7 +556,8 @@ and no usable Fusion data, while retaining title/source fallbacks.
 The homepage shows **Speaking English lessons by day** with the full saved
 lesson, not just its heading. Each day displays every available structured field
 (Korean meaning/explanation, English dialogue, Korean translation, vocabulary,
-and source credit), the **complete raw OCR text without truncation**, processing
+and source credit), the **reflowed lesson OCR text**, with complete speaker turns and known publisher
+credit/advertising footer lines excluded from the reading view, processing
 status and parser notes, and expandable raw OCR regions/confidence/bounding boxes.
 Unclassified fields are explicitly marked; the page never invents missing text or
 silently treats OCR as fully reliable. Links open the original lesson image and

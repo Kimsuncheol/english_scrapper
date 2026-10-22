@@ -87,24 +87,80 @@ function ocrSpeakerPrefix(text, regions = [], leftEdge = 0) {
   return null;
 }
 
+// Only known credit/advertising markers are excluded from the lesson view.
+// Raw OCR regions and the saved API response remain intact for diagnostics.
+function ocrFooterLine(text) {
+  const compact = text.normalize("NFKC").replace(/\s/g, "").toLowerCase();
+  return /^[(（]?ybm.*(?:센터|학원)/i.test(compact)
+    || /^(?:학원문의|내용문의).*\d{2}.*\d{3,4}.*\d{4}/.test(compact);
+}
+
+function lessonTextLines(rawText) {
+  return (rawText || "").split(/\r\n|\r|\n/).filter(text => !ocrFooterLine(text));
+}
+
+function ocrLineLayouts(lines, regions) {
+  const compact = text => text.normalize("NFC").replace(/\s/g, "");
+  let cursor = 0;
+  return lines.map(text => {
+    const target = compact(text);
+    if (!target) return null;
+    for (let start = cursor; start < Math.min(regions.length, cursor + 32); start += 1) {
+      let joined = "";
+      const words = [];
+      for (let end = start; end < Math.min(regions.length, start + 256) && joined.length < target.length; end += 1) {
+        joined += compact(regions[end].text);
+        words.push(regions[end]);
+        if (!target.startsWith(joined)) break;
+        if (joined === target && words.every(word => word.bounding_box)) {
+          cursor = end + 1;
+          const boxes = words.map(word => word.bounding_box);
+          return {x: Math.min(...boxes.map(box => box.x)),
+            y: Math.min(...boxes.map(box => box.y)),
+            bottom: Math.max(...boxes.map(box => box.y + box.height)),
+            height: Math.max(...boxes.map(box => box.height)),
+            bodyX: words.length > 1 && /^[AB][:：]?$/.test(words[0].text)
+              ? words[1].bounding_box.x : boxes[0].x};
+        }
+      }
+    }
+    return null;
+  });
+}
+
 function ocrReadingBlocks(rawText, regions = []) {
   const headings = /^(?:표현|영어 표현|뜻|의미|설명|해설|대화|영어 대화|대화 해석|대화 번역|해석|번역|어휘|단어|단어와 숙어|출처|Expression|Meaning|Explanation|Dialogue|Translation|Vocabulary|Vocabulary notes|Source credit)[:：]?$/i;
   const leftEdge = regions.reduce((min, region) => Math.min(min, region.bounding_box?.x ?? Infinity), Infinity);
-  const speaker = text => Boolean(ocrSpeakerPrefix(text, regions, leftEdge));
+  const sourceLines = (rawText || "").split(/\r\n|\r|\n/);
+  const layouts = ocrLineLayouts(sourceLines, regions);
   const blocks = [];
   let current = null;
-  for (const text of (rawText || "").split(/\r\n|\r|\n/)) {
-    if (!text.trim()) { current = null; continue; }
+  let previousLayout = null;
+  for (let index = 0; index < sourceLines.length; index += 1) {
+    const text = sourceLines[index];
+    if (ocrFooterLine(text)) { current = null; previousLayout = null; continue; }
+    if (!text.trim()) { current = null; previousLayout = null; continue; }
     if (headings.test(text.trim())) {
-      blocks.push({ type: "heading", lines: [text] });
+      blocks.push({type: "heading", lines: [text]});
       current = null;
+      previousLayout = null;
       continue;
     }
-    if (!current || current.type === "dialogue" || speaker(text)) {
-      current = { type: speaker(text) ? "dialogue" : "paragraph", lines: [] };
+    const prefix = ocrSpeakerPrefix(text, regions, leftEdge);
+    const layout = layouts[index];
+    const korean = /[가-힣]/.test(text);
+    const sameLanguage = current && current.korean === korean;
+    const adjacent = !layout || !previousLayout || (
+      layout.y - previousLayout.bottom <= 1.3 * Math.max(layout.height, previousLayout.height)
+      && Math.abs(layout.x - current.bodyX) <= 1.5 * Math.max(layout.height, previousLayout.height));
+    const vocabulary = /^[a-z][a-z'’~ -]*[:：]?\s+[가-힣]/i.test(text.trim());
+    if (!current || prefix || !sameLanguage || !adjacent || vocabulary) {
+      current = {type: prefix ? "dialogue" : "paragraph", lines: [], korean,
+        bodyX: prefix ? layout?.bodyX : layout?.x};
       blocks.push(current);
     }
     current.lines.push(text);
+    previousLayout = layout;
   }
   return blocks;
 }
@@ -116,32 +172,37 @@ function renderOCRReadingView(ocr, expression) {
   const leftEdge = ocr.regions.reduce((min, region) => Math.min(min, region.bounding_box?.x ?? Infinity), Infinity);
   if (!blocks.length) {
     const empty = document.createElement("p");
-    empty.textContent = "OCR returned no text.";
+    empty.textContent = "OCR returned no lesson text.";
     view.append(empty);
   }
   for (const block of blocks) {
     const section = document.createElement(block.type === "heading" ? "h5" : "div");
     section.className = `ocr-reading-block ocr-${block.type}`;
-    for (const text of block.lines) {
-      const line = document.createElement("p");
-      line.className = "ocr-reading-line";
-      const korean = /[가-힣]/.test(text);
-      const english = /[a-z]/i.test(text);
-      line.classList.add(korean ? "ocr-korean" : "ocr-english");
-      if (korean && !english) line.lang = "ko";
-      else if (english && !korean) line.lang = "en";
-      if (expression && text.trim() === expression.trim()) line.classList.add("ocr-expression");
-      const prefix = ocrSpeakerPrefix(text, ocr.regions, leftEdge);
-      if (prefix) {
-        const label = document.createElement("span");
-        label.className = "ocr-speaker";
-        label.textContent = prefix[1];
-        line.append(label, document.createTextNode(prefix[2]));
-      } else line.textContent = text;
-      // A heading must not contain paragraph elements.
-      if (block.type === "heading") section.textContent = text;
-      else section.append(line);
+    const text = block.lines.map(line => line.trim()).join(" ");
+    if (block.type === "heading") {
+      section.textContent = text;
+      view.append(section);
+      continue;
     }
+    const line = document.createElement("p");
+    line.className = "ocr-reading-line";
+    const korean = /[가-힣]/.test(text);
+    const english = /[a-z]/i.test(text);
+    line.classList.add(korean ? "ocr-korean" : "ocr-english");
+    if (korean && !english) line.lang = "ko";
+    else if (english && !korean) line.lang = "en";
+    if (expression && text === expression.trim()) line.classList.add("ocr-expression");
+    const prefix = ocrSpeakerPrefix(text, ocr.regions, leftEdge);
+    if (prefix) {
+      const label = document.createElement("span");
+      label.className = "ocr-speaker";
+      label.textContent = prefix[1];
+      const body = document.createElement("span");
+      body.className = "ocr-dialogue-body";
+      body.textContent = prefix[2].trimStart();
+      line.append(label, body);
+    } else line.textContent = text;
+    section.append(line);
     view.append(section);
   }
   return view;
@@ -189,13 +250,14 @@ function renderExpressions(items) {
     fields.className = "lesson-fields";
     for (const [key, label] of Object.entries(fieldLabels)) {
       const field = item.lesson.fields[key];
-      if (key === "source_credit" && !field) continue;
+      const fieldText = field ? lessonTextLines(field.text).join("\n").trim() : "";
+      if (key === "source_credit" && !fieldText) continue;
       const section = document.createElement("section");
       const heading = document.createElement("h4");
       heading.textContent = label;
       const text = document.createElement("p");
       text.className = field ? "lesson-field-text" : "muted";
-      text.textContent = field?.text || "Not reliably classified; see full OCR text above.";
+      text.textContent = fieldText || "Not reliably classified; see full OCR text above.";
       section.append(heading, text);
       fields.append(section);
     }
@@ -203,14 +265,14 @@ function renderExpressions(items) {
     rawHeading.textContent = "Full OCR text";
     const rawNote = document.createElement("p");
     rawNote.className = "muted";
-    rawNote.textContent = "All recognized text is shown below with clearer spacing, section labels and speaker cues. Text and reading order are preserved; formatting does not confirm classification or correct OCR errors.";
+    rawNote.textContent = "OCR lines are reflowed into paragraphs and complete speaker turns. Publisher credits and advertising are excluded from this lesson view. Recognition errors may remain; compare the source image when needed.";
     const raw = document.createElement("pre");
     raw.className = "lesson-raw-text";
-    raw.textContent = item.ocr.raw_text || "OCR returned no text.";
+    raw.textContent = lessonTextLines(item.ocr.raw_text).join("\n") || "OCR returned no lesson text.";
     const original = document.createElement("details");
     original.className = "ocr-original";
     const originalHeading = document.createElement("summary");
-    originalHeading.textContent = "Original OCR text · exact line breaks";
+    originalHeading.textContent = "Plain lesson text · original line breaks";
     original.append(originalHeading, raw);
     const reader = renderOCRReadingView(item.ocr, item.expression);
     const reasons = document.createElement("p");

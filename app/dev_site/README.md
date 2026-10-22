@@ -51,8 +51,12 @@ interrupted initial import. See the main README for credentials, limits and
 refresh behavior. The homepage only reads persisted catalog/results; it does not
 crawl the publisher automatically on load.
 
-The Full OCR text reading view preserves every nonblank OCR line in order, with
-roomier typography, paragraph spacing, explicit section-heading emphasis and A/B
-speaker cues. It does not infer missing lesson fields or correct recognized
-words. Expand **Original OCR text · exact line breaks** for the unchanged raw
-string; the API payload and raw region indices are unchanged.
+The Full OCR text reading view reflows adjacent OCR lines into paragraphs and
+complete speaker turns using line geometry, alignment and language boundaries.
+It does not correct recognized words or infer missing lesson fields. Known YBM
+publisher-credit/academy/contact footer lines are excluded from the lesson view
+and its expandable plain-text version. Original OCR remains unchanged in saved
+JSON and raw region diagnostics for correction. The plain-text panel retains
+original line breaks for the remaining lesson text. JavaScript layout regressions
+run through `tests/test_ocr_reading_ui.py` when Node.js is available, without
+external HTTP or model initialization.
