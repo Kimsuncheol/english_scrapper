@@ -52,3 +52,12 @@
 .archive-lesson-link:hover{color:#103d2d}
 .archive-lesson-link:focus-visible{outline:3px solid #749d65;outline-offset:3px;border-radius:3px}
 .archive-lesson-link:disabled{opacity:.6;cursor:wait}
+
+.lesson-structured-reader{max-width:78ch;margin:20px 0;padding:clamp(20px,4vw,40px)}
+.lesson-expression{display:block;font-size:clamp(24px,3vw,32px);font-weight:800;line-height:1.3;color:#205945;margin-bottom:24px}
+.lesson-reader-section + .lesson-reader-section{margin-top:26px;padding-top:22px;border-top:1px solid #dce3d7}
+.lesson-reader-section h5{font-size:13px;font-weight:750;letter-spacing:.04em;color:#53604e;margin:0 0 10px}
+.lesson-reader-paragraph{margin:0;line-height:1.85;word-break:keep-all;overflow-wrap:anywhere}
+.lesson-reader-turn{display:grid;grid-template-columns:1.5em minmax(0,1fr);gap:12px;background:#f2f6f0;border-left:3px solid #71967e;border-radius:0 8px 8px 0;padding:14px 16px;margin:10px 0 0;line-height:1.75}
+.lesson-reader-turn .ocr-speaker{min-width:0;margin:0}
+.lesson-structured-reader > details{margin-top:24px;font-size:14px}

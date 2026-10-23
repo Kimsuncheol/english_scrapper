@@ -143,6 +143,82 @@ function renderOCRReadingView(ocr, expression) {
   return view;
 }
 
+// AI fields already reference validated transcript lines. Use those boundaries
+// for presentation rather than trying to infer layout without bounding boxes.
+function lessonDialogueTurns(text) {
+  const turns = [];
+  for (const line of lessonTextLines(text)) {
+    if (!line.trim()) continue;
+    const prefix = line.trim().match(/^([AB])(?:[:：]\s*|\s+)(.+)$/);
+    if (prefix) turns.push({speaker: prefix[1], text: prefix[2]});
+    else if (turns.length) turns[turns.length - 1].text += ` ${line.trim()}`;
+    else turns.push({speaker: null, text: line.trim()});
+  }
+  return turns;
+}
+
+function renderStructuredReadingView(item) {
+  const view = document.createElement("div");
+  view.className = "ocr-reading-view lesson-structured-reader";
+  const expression = document.createElement("strong");
+  expression.className = "lesson-expression";
+  expression.textContent = item.expression || item.lesson.fields.expression?.text || "Expression needs review";
+  view.append(expression);
+  const sections = [
+    ["korean_meaning", "Meaning", "ko"],
+    ["korean_explanation", "Explanation", "ko"],
+    ["english_dialogue", "English dialogue", "en"],
+    ["korean_dialogue_translation", "Korean translation", "ko"],
+    ["vocabulary_notes", "Vocabulary", null],
+  ];
+  for (const [key, label, language] of sections) {
+    const text = lessonTextLines(item.lesson.fields[key]?.text).join("\n").trim();
+    if (!text) continue;
+    const section = document.createElement("section");
+    section.className = "lesson-reader-section";
+    const heading = document.createElement("h5");
+    heading.textContent = label;
+    section.append(heading);
+    if (language) section.lang = language;
+    if (key.includes("dialogue")) {
+      for (const turn of lessonDialogueTurns(text)) {
+        const row = document.createElement("p");
+        row.className = turn.speaker ? "lesson-reader-turn" : "lesson-reader-paragraph";
+        if (turn.speaker) {
+          const speaker = document.createElement("strong");
+          speaker.className = "ocr-speaker";
+          speaker.textContent = turn.speaker;
+          row.append(speaker);
+        }
+        const body = document.createElement("span");
+        body.textContent = turn.text;
+        row.append(body);
+        section.append(row);
+      }
+    } else {
+      const paragraph = document.createElement("p");
+      paragraph.className = "lesson-reader-paragraph";
+      paragraph.textContent = text.replace(/\n/g, " ");
+      section.append(paragraph);
+    }
+    view.append(section);
+  }
+  // Keep unassigned transcript lines visible instead of dropping uncertain text.
+  const assigned = new Set(sections.flatMap(([key]) => item.lesson.fields[key]?.line_indices || []));
+  for (const i of item.lesson.fields.expression?.line_indices || []) assigned.add(i);
+  const remaining = (item.ocr.lines || []).filter((line, i) => !assigned.has(i) && !ocrFooterLine(line));
+  if (remaining.length) {
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "Other transcribed text";
+    const text = document.createElement("pre");
+    text.textContent = remaining.join("\n");
+    details.append(summary, text);
+    view.append(details);
+  }
+  return view;
+}
+
 function renderLessonCards(items, container) {
   container.replaceChildren();
   const fieldLabels = {
@@ -210,7 +286,8 @@ function renderLessonCards(items, container) {
     const originalHeading = document.createElement("summary");
     originalHeading.textContent = "Plain lesson text · original line breaks";
     original.append(originalHeading, raw);
-    const reader = renderOCRReadingView(item.ocr, item.expression);
+    const reader = aiVision && item.lesson.fields.expression
+      ? renderStructuredReadingView(item) : renderOCRReadingView(item.ocr, item.expression);
     const reasons = document.createElement("p");
     reasons.className = "muted";
     reasons.textContent = item.lesson.reasons.join(" ");
@@ -227,7 +304,7 @@ function renderLessonCards(items, container) {
     const organized = document.createElement("details");
     const organizedHeading = document.createElement("summary");
     organizedHeading.textContent = "Organized lesson fields and classification status";
-    organized.open = Object.keys(fieldLabels).some(key => Boolean(item.lesson.fields[key]));
+    organized.open = !aiVision && Object.keys(fieldLabels).some(key => Boolean(item.lesson.fields[key]));
     organized.append(organizedHeading, fields);
     card.append(rawHeading, rawNote, reader, original, reasons, organized, regions);
     container.append(card);

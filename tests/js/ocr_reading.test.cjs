@@ -70,3 +70,11 @@ test('colonless speakers require layout evidence and cannot consume another lang
   assert.equal(blocks.length, 3);
   assert.equal(blocks[1].type, 'paragraph');
 });
+
+test('AI dialogue fields reflow wrapped lines into separate colonless speaker turns', () => {
+  const turns = context.lessonDialogueTurns("A Don't rush.\nTake your time.\nB： All right!\nA 좋아,\n천천히 하자.");
+  assert.equal(turns.length, 3);
+  assert.equal(turns[0].text, "Don't rush. Take your time.");
+  assert.equal(turns[1].speaker, 'B');
+  assert.equal(turns[2].text, '좋아, 천천히 하자.');
+});
