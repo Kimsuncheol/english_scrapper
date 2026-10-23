@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
     ArticleFetchConfig.from_env()
     ImageDownloadConfig.from_env()
     ScrapeConfig.from_env()
-    # Language models initialize on the first OCR call, under the service lock.
+    # Ollama inference is request-scoped; no local model is loaded.
     # /health must not wait for OCR or perform any network/model work.
     daily = DailyRunner(DailyConfig.from_env())
     app.state.daily_runner = daily

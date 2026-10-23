@@ -6,7 +6,7 @@
 <main class="index"><p class="eyebrow">LOCAL PARSER PLAYGROUND</p>
 <section class="scrape-panel" aria-labelledby="series-heading">
 <h2 id="series-heading">Speaking English lessons by day</h2>
-<p>Browse the complete expression archive below, or check Chosun’s series page for its newest lesson. If it has not been saved, the scraper runs OCR and adds it here.</p>
+<p>Browse the complete expression archive below, or check Chosun’s series page for its newest lesson. If it has not been saved, Ollama reads the lesson image and the scraper adds its text here.</p>
 <div class="scrape-controls"><button id="series-check" type="button">Check for new expressions</button><button id="series-refresh" type="button">Refresh saved expressions</button></div>
 <p id="series-status" role="status" aria-live="polite"></p>
 <section aria-labelledby="archive-heading" class="archive-panel">
@@ -27,12 +27,12 @@
 </section>
 <section class="scrape-panel" aria-labelledby="scrape-heading">
 <h2 id="scrape-heading">Scrape a Chosun article</h2>
-<p>Paste an HTTPS Chosun article URL to fetch its lesson image, run real OCR, and save the result. This makes external requests; fixture pages linked in the navigation stay offline.</p>
+<p>Paste an HTTPS Chosun article URL to fetch its lesson image, have Ollama read its Korean and English text, and save the result. This makes external requests; fixture pages linked in the navigation stay offline.</p>
 <form id="scrape-form">
 <label for="article-url">Article URL</label>
 <div class="scrape-controls"><input id="article-url" name="article_url" type="url" placeholder="https://www.chosun.com/national/nie/english/…" required><button id="scrape-submit" type="submit">Scrape article</button></div>
 </form>
-<p class="muted">Requires FIREBASE_PROJECT_ID and installed Korean/English OCR models on the server. Local fixture URLs are rejected by the API.</p>
+<p class="muted">Requires Firestore credentials and a server-side Ollama Cloud API key. No local OCR models are required. Local fixture URLs are rejected by the API.</p>
 <p id="scrape-status" role="status" aria-live="polite"></p>
 <pre id="scrape-result" aria-label="Scrape API response" hidden></pre>
 <noscript>Enable JavaScript to submit an article URL.</noscript>

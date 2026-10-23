@@ -126,7 +126,7 @@ A complete, original synthetic response is available in
 [examples/scrape-response.json](examples/scrape-response.json). It includes all
 six labeled lesson sections and bounding boxes. Its URLs, timing and image
 metadata are illustrative; `engine: "mock"` identifies fixture data, not a real
-publisher OCR result. New production OCR uses `engine: "rapidocr-onnx"`; historical saved results may use `tesseract`.
+publisher OCR result. New production transcription uses `engine: "ollama/gemma4:31b"`; historical results may use local OCR engines.
 
 ### Idempotency and concurrent requests
 
@@ -188,23 +188,30 @@ article URL, rather than treating `published_at` as the lesson day.
 
 | Property | Type | Meaning |
 | --- | --- | --- |
-| `raw_text` | string | Combined OCR text with line breaks; not publisher-native text |
+| `raw_text` | string | Combined image transcription with line breaks; not publisher-native text |
+| `lines` | string array | AI transcript in reading order; field line indices reference this array |
 | `korean_text`, `english_text` | string or null | Optional language-specific outputs; current normalizer leaves these null |
-| `engine` | string | `rapidocr-onnx` for new results; historical results may use `tesseract` |
+| `engine` | string | `ollama/gemma4:31b` for new results; historical engines are preserved |
 | `status` | `ok`, `low_confidence`, `empty` | Recognition outcome |
 | `mean_confidence` | number 0–1 or null | Mean recognized region confidence; null when empty |
-| `regions` | array of `OCRRegion` | Normalized text regions in engine reading order (RapidOCR lines; legacy Tesseract words) |
+| `regions` | array of `OCRRegion` | Measured OCR regions for historical engines; empty for Ollama vision |
 | `warnings` | string array | Recognition limitations requiring review |
 
 Each `OCRRegion` contains `text`, `confidence` (0–1), `bounding_box` and
 `low_confidence` (boolean). A bounding box is
 `{"x":48,"y":100,"width":120,"height":24}`: pixels from the decoded image's
 top-left, x increasing rightward and y downward. Width/height are positive,
-x/y nonnegative. RapidOCR may resize working images; boxes are mapped back to
-original input pixels. `raw_text` joins recognized lines with newlines. “Raw” here
+x/y nonnegative. Historical OCR boxes use original image pixels. Ollama vision does not
+provide measured boxes or confidence in this integration. `raw_text` joins recognized lines with newlines. “Raw” here
 means retained normalized OCR, not an unmodified engine export. Low
 confidence regions remain available. An `ok` mean does not guarantee every region
 is reliable.
+
+`LessonField.confidence` and `bounding_box` are nullable for AI transcription.
+`line_indices` reference `ocr.lines`; `region_indices` is empty for AI fields.
+`method: ollama_vision_v1` identifies AI classification. Unreadable/missing text is
+not completed or translated. AI results carry a review warning and partial
+processing status. See [Ollama setup and errors](ollama-vision.md).
 
 `LessonParsingResult` contains:
 
@@ -460,7 +467,7 @@ These are default server settings, not request-body options:
 | `IMAGE_MAX_REDIRECTS` | 3 | Image redirect cap |
 | `OCR_MAX_BYTES` | 10485760 | OCR input byte cap |
 | `OCR_MAX_PIXELS` | 4000000 | OCR input pixel cap; stricter than image decoding |
-| `OCR_TIMEOUT_MS` | 30000 | Native recognition timeout |
+| `OLLAMA_TIMEOUT_SECONDS` | 60 | Remote image transcription deadline |
 | `OCR_MIN_CONFIDENCE` | 0.5 | Low-confidence threshold |
 | `SCRAPE_TIMEOUT_SECONDS` | 90 | Pipeline deadline; excludes some persistence/HTTP overhead |
 | `SCRAPE_MAX_CONCURRENT_REQUESTS` | 1 | Process-wide active scrape admission limit |

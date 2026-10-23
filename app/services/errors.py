@@ -7,3 +7,7 @@ class ArticleFetchError(Exception):
         self.code = code
         self.status_code = status_code
         self.upstream_status = upstream_status
+
+
+class OCRError(ArticleFetchError):
+    """Image transcription failures use the application error envelope."""

@@ -1,3 +1,6 @@
+> Historical local OCR documentation. Production now uses [Ollama Cloud](ollama-vision.md).
+> These optional adapters are not installed or selected by the production requirements/Dockerfile.
+
 # RapidOCR models and deployment
 
 The default OCR adapter is **RapidOCR 3.10.0 + ONNX Runtime 1.31.0**, CPU only.

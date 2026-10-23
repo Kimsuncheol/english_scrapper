@@ -64,6 +64,7 @@ class OCRRegion(BaseModel):
 
 class OCRText(BaseModel):
     raw_text: str
+    lines: list[str] = Field(default_factory=list)
     korean_text: str | None = None
     english_text: str | None = None
     engine: str = "tesseract"
@@ -76,8 +77,9 @@ class OCRText(BaseModel):
 class LessonField(BaseModel):
     text: str
     region_indices: list[int]
-    confidence: float = Field(ge=0, le=1)
-    bounding_box: BoundingBox
+    line_indices: list[int] = Field(default_factory=list)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    bounding_box: BoundingBox | None = None
 
 
 class LessonFields(BaseModel):

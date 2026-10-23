@@ -125,6 +125,17 @@ async def series_day(body: ScrapeRequest, response: Response, store=Depends(get_
     return expression_card(saved)
 
 
+@router.post("/lessons/{article_id}/transcribe", response_model=SeriesExpression)
+async def transcribe_saved_lesson(article_id: str, response: Response, store=Depends(get_store)):
+    """Explicit AI refresh; opt-in development site only, never on a GET/page load."""
+    response.headers["Cache-Control"] = "no-store"
+    record = await store.lesson(article_id)
+    if not record:
+        raise ArticleFetchError("article_not_found", "Saved article was not found.", 404)
+    saved, _ = await process_and_store(store, record["canonical_url"], reprocess=True)
+    return expression_card(saved)
+
+
 @router.get("/series/archive", response_model=ArchivePage)
 async def series_archive(response: Response, page: int = Query(1, ge=1, le=400),
     day: date | None = None, store=Depends(get_store)):

@@ -1,4 +1,4 @@
-# Docker installs ONNX Runtime and pinned OCR models during the image build.
+# Inference runs on Ollama Cloud. This Free web service loads no OCR models.
 # The Docker CMD runs scripts/start.sh; no separate build/start override needed.
 services:
   - type: web
@@ -15,18 +15,20 @@ services:
         value: "(default)"
       - key: GOOGLE_APPLICATION_CREDENTIALS
         value: /etc/secrets/service-account.json
-      - key: OCR_MODEL_DIR
-        value: /app/.ocr-models/rapidocr
-      - key: OMP_THREAD_LIMIT
-        value: "1"
+      - key: OLLAMA_API_KEY
+        sync: false
+      - key: OLLAMA_MODEL
+        value: gemma4:31b
+      - key: OLLAMA_TIMEOUT_SECONDS
+        value: "60"
+      - key: OLLAMA_MAX_OUTPUT_TOKENS
+        value: "4096"
       - key: SCRAPE_MAX_CONCURRENT_REQUESTS
         value: "1"
       - key: SCRAPE_TIMEOUT_SECONDS
         value: "90"
       - key: OCR_MAX_PIXELS
         value: "4000000"
-      - key: OCR_TIMEOUT_MS
-        value: "30000"
       - key: SCRAPE_ENABLED
         value: "false"
       # The external scheduler owns the clock; no timer runs in a Free web process.

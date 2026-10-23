@@ -381,7 +381,7 @@ class RunSession:
     async def attempt(self, url):
         await self.update_queue(url, {"state": "processing", "attempts": firestore.Increment(1), "last_attempt_at": datetime.now(timezone.utc)})
 
-    async def save(self, url, result):
+    async def save(self, url, result, *, replace_existing=False):
         canonical = stable_url(str(result.article.url))
         lesson_id = identifier(canonical)
         ref = self.store.collection("lessons").document(lesson_id)
@@ -397,16 +397,22 @@ class RunSession:
         catalog = {"canonical_url": canonical, "article_url": canonical,
             "title": title, "expression": SERIES_TITLE.sub("", title).strip(),
             "issue_date": day.isoformat()} if day and SERIES_TITLE.match(title) else None
+        revision_id = str(uuid4())
         async def operation(tx):
             existing = await ref.get(transaction=tx, **RPC)
             archive_ref = self.store.collection("archive").document(identifier(canonical))
             archive = (await archive_ref.get(transaction=tx, **RPC)).to_dict() if catalog else None
             # All reads precede writes, as required by Firestore transactions.
-            if not existing.exists:
+            if not existing.exists or replace_existing:
                 now = datetime.now(timezone.utc)
+                previous = existing.to_dict() if existing.exists else None
+                if previous:
+                    # Preserve the complete old payload atomically before a user-
+                    # requested refresh; failures leave the current lesson intact.
+                    tx.create(ref.collection("revisions").document(revision_id), previous)
                 tx.set(ref, {"id": lesson_id, "canonical_url": canonical, "payload_json": encoded,
                     "article": payload["article"], "processing_status": payload["processing"]["status"],
-                    "created_at": now, "updated_at": now})
+                    "created_at": previous["created_at"] if previous else now, "updated_at": now})
             if catalog and (not archive or any(archive.get(key) != value for key, value in catalog.items())):
                 tx.set(archive_ref, {**catalog, "updated_at": datetime.now(timezone.utc)})
                 tx.set(self.store.collection("archive_state").document("series"),

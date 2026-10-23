@@ -387,3 +387,24 @@ def test_archive_import_preserves_published_snapshot_until_complete():
         assert snapshot['catalog_revision'] > snapshot['published_revision']
         await store.close()
     asyncio.run(run())
+
+
+def test_explicit_refresh_preserves_previous_payload_in_atomic_revision():
+    from app.services.saved import process_and_store
+    from app.services.storage import identifier
+    from unittest.mock import AsyncMock
+    async def run():
+        store=await make_store()
+        first=result()
+        await process_and_store(store,ONE,scrape=AsyncMock(return_value=first))
+        changed=first.model_copy(update={'ocr':first.ocr.model_copy(update={'engine':'ollama/gemma4:31b','raw_text':'AI transcript'})})
+        saved,_=await process_and_store(store,ONE,scrape=AsyncMock(return_value=changed),reprocess=True)
+        assert saved.payload.ocr.raw_text=='AI transcript'
+        ref=store.collection('lessons').document(identifier(ONE))
+        revisions=[row.to_dict() async for row in ref.collection('revisions').stream()]
+        assert len(revisions)==1
+        import json
+        assert json.loads(revisions[0]['payload_json'])==first.model_dump(mode='json')
+        assert revisions[0]['created_at']==saved.created_at
+        await store.close()
+    asyncio.run(run())

@@ -958,22 +958,41 @@
             "type": "array",
             "title": "Region Indices"
           },
+          "line_indices": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Line Indices"
+          },
           "confidence": {
-            "type": "number",
-            "maximum": 1.0,
-            "minimum": 0.0,
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Confidence"
           },
           "bounding_box": {
-            "$ref": "#/components/schemas/BoundingBox"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BoundingBox"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
         "required": [
           "text",
-          "region_indices",
-          "confidence",
-          "bounding_box"
+          "region_indices"
         ],
         "title": "LessonField"
       },
@@ -1265,6 +1284,13 @@
           "raw_text": {
             "type": "string",
             "title": "Raw Text"
+          },
+          "lines": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Lines"
           },
           "korean_text": {
             "anyOf": [

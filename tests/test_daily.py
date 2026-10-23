@@ -122,10 +122,15 @@ class MemoryStore:
         self.items[url]["attempts"] += 1
         self.items[url]["state"] = "processing"
 
-    async def save(self, url, response):
+    async def save(self, url, response, *, replace_existing=False):
         canonical = stable_url(response.article.url)
         is_new = canonical not in self.saved
-        self.saved.setdefault(canonical, response)
+        if replace_existing:
+            if not is_new:
+                self.revisions = getattr(self, "revisions", []) + [self.saved[canonical]]
+            self.saved[canonical] = response
+        else:
+            self.saved.setdefault(canonical, response)
         self.items[url].update(state="succeeded", canonical=canonical)
         return is_new
 

@@ -17,7 +17,7 @@ import anyio
 from PIL import Image, UnidentifiedImageError
 
 from app.schemas import BoundingBox, OCRRegion, OCRText
-from app.services.errors import ArticleFetchError
+from app.services.errors import OCRError
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +31,6 @@ try:
 except (ImportError, OSError, RuntimeError, ValueError) as exc:
     _tesserocr = None
     _binding_error = exc
-
-
-class OCRError(ArticleFetchError):
-    """OCR failures use the existing application error envelope."""
 
 
 @dataclass(frozen=True)
@@ -225,7 +221,12 @@ def create_rapidocr_engine():
     return RapidOCREngine(OCRConfig.from_env())
 
 
-ocr_service = OCRService()
+# Local adapters above remain available for historical normalization tests.
+# Production sends validated image bytes to Ollama Cloud, with no local models.
+from app.services.ollama_vision import OllamaVisionService
+from app.services.recognition import RecognizedLesson
+
+ocr_service = OllamaVisionService()
 atexit.register(ocr_service.close)
 
 
@@ -233,5 +234,5 @@ async def initialize_ocr() -> bool:
     return await anyio.to_thread.run_sync(ocr_service.initialize)
 
 
-async def recognize_image(image_bytes: bytes) -> OCRText:
+async def recognize_image(image_bytes: bytes) -> OCRText | RecognizedLesson:
     return await ocr_service.recognize(image_bytes)

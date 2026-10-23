@@ -2,9 +2,11 @@
 
 FastAPI service that safely fetches Chosun.com articles and extracts article
 metadata and lesson-image URLs, then downloads and validates the selected image
-in memory. RapidOCR with ONNX Runtime recognizes Korean and English text and
-returns text-line regions with confidence and pixel bounding boxes. A conservative layout parser organizes
-supported labeled sections into lesson fields. No request files are written at runtime.
+in memory. Ollama Cloud’s Gemma 4 31B vision model reads Korean and English
+directly from the image and returns a validated text transcription. AI-assigned
+lesson fields reference that transcription; absent or ambiguous fields stay
+unassigned. Historical OCR results remain readable. No request files are written
+at runtime.
 Manual and scheduled scraping use the same processing/persistence service.
 Results are saved in Cloud Firestore and can be retrieved through the API.
 
@@ -12,6 +14,8 @@ The lesson graphic is a raster image: this service locates and downloads it,
 then recognizes its pixels with OCR. It does **not** extract the graphic as
 native/selectable text from the article HTML. Page metadata comes from HTML/page
 data, while lesson text is an OCR estimate that can contain errors.
+
+AI setup: [Ollama Cloud image transcription](docs/ollama-vision.md).
 
 API reference: [API documentation](docs/API.md), [OpenAPI specification](docs/openapi.json),
 and [synthetic response example](docs/examples/scrape-response.json).
@@ -114,7 +118,7 @@ sh scripts/start-local.sh
 This local-only script sets the project, credential path, and development route
 flag; scheduling remains off. It uses installed `.ocr-models` if present and
 accepts environment overrides (`LOCAL_PORT`, `FIREBASE_PROJECT_ID`,
-`GOOGLE_APPLICATION_CREDENTIALS`, `OCR_MODEL_DIR`, `ENABLE_TEST_SITE`).
+`GOOGLE_APPLICATION_CREDENTIALS`, `OLLAMA_API_KEY_FILE`, `ENABLE_TEST_SITE`).
 Render uses its separate production start script. For Render, mount the same
 service-account key privately as `/etc/secrets/service-account.json`; the Blueprint
 already specifies the project ID and credential path. The secret itself is not
@@ -431,7 +435,7 @@ To run the test-site URL form with the emulator, leave it running and start:
 ```sh
 ENABLE_TEST_SITE=true SCRAPE_ENABLED=false \
 FIREBASE_PROJECT_ID=demo-english-scrapper FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 \
-OCR_MODEL_DIR="$PWD/.ocr-models/rapidocr" \
+OLLAMA_API_KEY_FILE="$PWD/secrets/ollama-api-key" \
   .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
@@ -447,19 +451,17 @@ and restart recovery without sleeping or calling Render.
 
 ## Run locally
 
-Use Python 3.12. The default engine is RapidOCR with CPU ONNX Runtime and
-headless OpenCV. No Tesseract installation, GPU, PaddlePaddle, or PyTorch is
-required. Provision the pinned Korean/English ONNX models once during setup;
-requests and server startup never download models. See
-[OCR models and deployment](docs/ocr-models.md) for licenses and resource limits.
+Use Python 3.12. The default image reader is Ollama Cloud (`gemma4:31b`). No local
+OCR engine, Ollama installation, GPU, or model files are needed. Configure the
+server-side Ollama key privately using `OLLAMA_API_KEY` or `OLLAMA_API_KEY_FILE`.
+See [Ollama setup and deployment](docs/ollama-vision.md) for limits and credentials.
 
 Then, from the repository root:
 
 ```sh
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python scripts/prepare_ocr_models.py
-export OCR_MODEL_DIR="$PWD/.ocr-models/rapidocr"
+export OLLAMA_API_KEY_FILE="$PWD/secrets/ollama-api-key"
 # Use a separate development Firebase project and server credentials.
 export FIREBASE_PROJECT_ID='your-dev-project-id'
 export GOOGLE_APPLICATION_CREDENTIALS='/absolute/path/to/service-account.json'
@@ -524,9 +526,9 @@ and calls `POST /api/v1/scrape` on the same server. It displays the expression
 when reliably classified, processing status, and the full JSON response (including
 raw OCR), or the API error. Submitting this form performs real external fetching
 and OCR; the four fixture links remain offline. Configure `FIREBASE_PROJECT_ID` and server credentials for
-Cloud Firestore and install the Korean/English OCR models as described
-above before submitting. For locally provisioned models, also set
-`OCR_MODEL_DIR="$PWD/.ocr-models/rapidocr"` when starting the server. Duplicate URLs use
+Cloud Firestore and configure the Ollama API key as described
+above before submitting. For a local secret file, set
+`OLLAMA_API_KEY_FILE="$PWD/secrets/ollama-api-key"` when starting the server. Duplicate URLs use
 the existing saved result. The form does not enable local URL fetching or bypass
 API host validation. Keep `ENABLE_TEST_SITE=false` in production.
 
@@ -744,7 +746,7 @@ a valid article image or OG fallback.
 | --- | --- |
 | Browse/curl the fixture HTML pages | The pure article parser displays metadata and selected-image information. OCR is not invoked. |
 | Run `tests/test_local_fixture_e2e.py` | Real fixture HTML/PNG routes and image validation run. A mocked OCR service receives the validated PNG bytes and returns the fixed original text/boxes in `tests/fixtures/lesson_ocr_original_six_sections.json`. Results use an in-memory persistence double. |
-| Submit an approved real article to the ordinary `/api/v1/scrape` endpoint | Real Korean/English RapidOCR runs on the downloaded image; configured language files and configured Firestore credentials are required. |
+| Submit an approved real article to the ordinary `/api/v1/scrape` endpoint | Ollama reads the Korean/English image text on the downloaded image; configured language files and configured Firestore credentials are required. |
 
 Mocked OCR has deterministic text, confidence and bounding boxes, even if the
 fixture image's visible words differ. It tests pipeline wiring, reading order and
@@ -830,7 +832,7 @@ A successful scrape returns HTTP 200:
 - `ocr`: combined `raw_text`, word `regions`, `mean_confidence`, `status`, `engine`,
   and `warnings`. Each region has `text`, `confidence` (0–1), `low_confidence`,
   and `bounding_box: {x, y, width, height}` in original-image pixels from the top
-  left. Regions retain engine reading order; RapidOCR regions are detected text lines.
+  left. Historical OCR regions retain engine reading order; Ollama supplies text lines and no measured regions.
   `korean_text`/`english_text` remain `null`: recognition uses both languages
   together. Structured lesson sections are provided separately in `lesson`.
 
@@ -902,7 +904,7 @@ The example timing and byte count are illustrative, not benchmark results.
     "raw_text": "Expression\nDon't sweat it.\n뜻\n걱정하지 마.",
     "korean_text": null,
     "english_text": null,
-    "engine": "rapidocr-onnx",
+    "engine": "ollama/gemma4:31b",
     "status": "ok",
     "mean_confidence": 0.97,
     "regions": [
@@ -1093,7 +1095,7 @@ also pass `ArticleFetchConfig` / `ImageDownloadConfig` directly to those service
 | `IMAGE_MAX_REDIRECTS` | 3 |
 | `OCR_MAX_BYTES` | 10485760 (10 MiB) |
 | `OCR_MAX_PIXELS` | 4000000 |
-| `OCR_TIMEOUT_MS` | 30000 |
+| `OLLAMA_TIMEOUT_SECONDS` | 60 |
 | `OCR_MIN_CONFIDENCE` | 0.5 |
 
 The overall deadline is cooperative: a native OCR call or CPU worker cannot be
@@ -1213,9 +1215,8 @@ No article ID, date or expression is hardcoded into production selection logic.
 Tests for this case use local/mocked fixtures rather than repeatedly calling
 Chosun. The one live verification does not prove a Render daily run has occurred.
 
-That historical verification used Tesseract fast language files. The current
-RapidOCR engine instead uses the one-time model setup in
-[OCR models and deployment](docs/ocr-models.md); Docker packages those models at build time. Actual unattended runs still need the Firebase project/credentials, enabled
+That historical verification used Tesseract fast language files. The current engine instead sends the image to
+[Ollama Cloud](docs/ollama-vision.md); Docker contains no local model weights. Actual unattended runs still need the Firebase project/credentials, enabled
 schedule, trigger secret and external scheduler described above.
 
 ## Image selection
@@ -1392,105 +1393,42 @@ Image errors use the same `error` envelope:
 | 502 | `image_http_error`, `image_network_error`, `image_redirect_error`, `image_too_large`, `image_encoding_error` |
 | 504 | `image_timeout` |
 
-## OCR engine comparison and choice
+## Ollama vision transcription
 
-The repository uses async FastAPI handlers, Pillow, and bounded image buffers.
-Render Free currently provides 512 MB RAM and 0.1 CPU, no GPU, and ephemeral
-runtime storage. Models must be part of the build, not an assumed persistent
-runtime cache. [Render compute plans](https://render.com/docs/compute-plans),
-[Free service limitations](https://render.com/docs/free).
+The service now sends the validated lesson-image bytes to **Ollama Cloud** using
+**Gemma 4 31B** (`OLLAMA_MODEL=gemma4:31b`). No local OCR library, inference runtime,
+model download, or GPU is required. Manual scrapes, the newest-expression check,
+and scheduled scraping share this processing path.
 
-This is a deployment comparison, not an accuracy benchmark. Disk sizes exclude
-frameworks, shared libraries, pixel buffers, and inference working memory. The
-startup/RAM comparisons below are expectations from architecture; they are not
-measurements on Render.
+The model transcribes visible Korean/English text and identifies the optional
+lesson sections. It is instructed not to translate, invent missing words, or
+follow instructions in the image. Cloud JSON output is independently validated;
+field text must be present in the raw transcript. Unreadable spans stay marked.
+This is AI transcription and still requires review; it is not a guarantee of
+character-perfect recognition.
 
-| Engine | Model size for a practical Korean/English setup | System/runtime requirements | CPU, RAM, startup and Free suitability |
-| --- | --- | --- | --- |
-| **RapidOCR + ONNX Runtime (chosen)** | Pinned PP-OCRv5 mobile detector + Korean/English recognizer: 17.46 MiB combined ONNX files. | CPU ONNX Runtime, headless OpenCV, NumPy; Debian `libgomp1` and CA certificates. No Torch/Paddle/Tesseract runtime. | Single-threaded inference, batch size one, models loaded once. Local synthetic check peaked around 380–387 MiB; Render/Linux memory and accuracy remain unmeasured. |
-| PaddleOCR | A documented PP-OCRv5 mobile option uses a 4.7 MB detector plus a 14 MB Korean recognizer that also supports English; newer/model variants differ. | PaddlePaddle native inference runtime, NumPy/OpenCV and platform-dependent shared libraries; no GPU required for CPU mode. Optional orientation/unwarping adds models. | Compact weights do not imply compact total RSS. Framework import, detector/recognizer initialization, and activations add CPU/RAM and cold-start work. Possible with careful tuning, but not the smallest deployment here and not validated in 512 MB. |
-| EasyOCR | Published CRAFT ZIP is 73.7 MB plus `korean_g2` ZIP at 14.2 MB (about 88 MB compressed); extracted weights are larger. This excludes PyTorch and other dependencies. | PyTorch/torchvision, OpenCV-headless, NumPy/SciPy and other native wheels; CPU mode uses `gpu=False`. Pre-provision weights and disable downloads for deployment. | Two neural networks plus the PyTorch runtime add memory/import/model-load cost. CPU inference is supported, but a 512 MB service is a risky default without profiling. |
-| Tesseract (previous baseline) | `tessdata_fast`: Korean about 1.6 MB + English about 3.92 MB (about 5.5 MB total language data). | Native Tesseract/Leptonica plus the small `tesserocr` binding; existing Pillow supplies in-memory pixels. No Torch/Paddle, CUDA, or detector checkpoint. | Smallest practical total dependency/model footprint for this repository; one CPU engine and modest initialization work. CPU time and layout accuracy still depend on image size. Most plausible Free baseline, not a measured performance guarantee. |
+New results use `ocr.engine: "ollama/gemma4:31b"` and preserve `ocr.lines` and
+`ocr.raw_text`. The AI provider does not return measured OCR boxes or calibrated
+confidence: `ocr.regions` is empty, mean confidence is null, and field bounding
+boxes/confidences are null. Field `line_indices` reference the transcript.
+Historical results retain their original regions and engine labels.
 
-Sources: [PaddleOCR model tables](https://www.paddleocr.ai/main/en/version3.x/pipeline_usage/OCR.html),
-[EasyOCR model hub](https://jaided.ai/easyocr/modelhub/),
-[CRAFT release assets](https://github.com/JaidedAI/EasyOCR/releases/expanded_assets/pre-v1.1.6),
-[Korean G2 release assets](https://github.com/JaidedAI/EasyOCR/releases/expanded_assets/v1.3),
-[EasyOCR dependencies](https://github.com/JaidedAI/EasyOCR/blob/master/requirements.txt),
-[Tesseract Korean fast data](https://github.com/tesseract-ocr/tessdata_fast/blob/main/kor.traineddata),
-[Tesseract English fast data](https://github.com/tesseract-ocr/tessdata_fast/blob/main/eng.traineddata),
-[fast-model tradeoffs](https://tesseract-ocr.github.io/tessdoc/tessdata_fast.html).
+Existing URLs continue to reuse saved text without a new API call. To upgrade an
+older result, open its lesson page and choose **Read image again with Ollama**.
+That explicit action makes a new request and atomically preserves the previous
+Firestore payload in the article's `revisions` subcollection. It is available only
+when the development test site is explicitly enabled; page views never trigger
+reprocessing. Failed transcriptions preserve the old saved result.
 
-**RapidOCR + ONNX Runtime is now selected** with the PP-OCRv5 mobile detector
-and the Korean recognizer (also supports English/numbers). The two verified ONNX
-files total 17.46 MiB. It avoids Paddle/PyTorch, and provides text-line boxes and
-confidence through the existing service interface. This is a user-selected neural
-OCR alternative, not a proven accuracy improvement. Its total memory footprint
-is greater than the earlier Tesseract baseline and still needs Render profiling.
-See [model setup, license notices, offline smoke results, and deployment limits](docs/ocr-models.md).
-
-`OCREngine` exposes `recognize(bytes) -> OCRText` and `close()`; the process-wide
-`OCRService` now creates `RapidOCREngine`. Input pixels stay in memory. Historical
-saved Tesseract results remain unchanged and idempotently reused; this change
-does not automatically reprocess the archive.
-
-## OCR lifecycle, limits and results
-
-FastAPI startup validates server limits but does not initialize OCR language
-models. The first scrape initializes the process-wide engine lazily under its
-lock; subsequent requests reuse it. Initialization failures
-are logged and cached, never retried or silently downgraded to English-only.
-Scraping returns `503 ocr_unavailable`; restart after fixing libraries/model paths.
-`/health` remains a liveness check, not a guarantee that OCR is available.
-RapidOCR/ONNX imports, model initialization and OCR run in a worker thread.
-Native resources are released at process exit; health does not import the neural runtime.
-
-OCR runs in a worker thread, with one engine call at a time. The default
-whole-request admission limit rejects a competing scrape with `503 scrape_busy`
-before fetching. If request concurrency is explicitly raised, competing OCR
-calls still receive `503 ocr_busy` rather than sharing the engine concurrently.
-ONNX intra/inter-operation thread counts and OpenCV threads are fixed at one;
-recognition uses batch size one and CPU memory arenas are disabled.
-
-| Setting | Default | Behavior |
-| --- | --- | --- |
-| `OCR_MODEL_DIR` | `.ocr-models/rapidocr`; `/app/.ocr-models/rapidocr` in Docker | Directory containing the two checksum-verified ONNX files |
-| `OCR_MAX_PIXELS` | 4,000,000 | Reject larger inputs with `422 ocr_image_too_large` before native OCR |
-| `OCR_MIN_CONFIDENCE` | 0.5 | Flag uncertain regions and low average confidence |
-| `OCR_TIMEOUT_MS` | 30,000 | Shared cooperative deadline across ONNX runs; not a hard process timeout |
-
-The OCR byte cap defaults to 10 MiB via `OCR_MAX_BYTES` / `OCRConfig.max_bytes`. The OCR pixel limit is
-intentionally lower than the downloader's 16-million-pixel decode limit: native
-OCR needs additional image and segmentation buffers. Large lessons may be
-rejected; increasing this limit without profiling can exhaust Free memory.
-RapidOCR may resize working images (2000-pixel long side) and detection maps
-(960-pixel long side); returned boxes are mapped back to original input pixels.
-ONNX cancellation is cooperative and does not hard-kill the process. Model
-initialization and Python pre/post-processing cannot be forcibly cancelled;
-a recognition deadline returns `504 ocr_recognition_failed`.
-
-Low-confidence regions are retained and flagged. `status: low_confidence` means
-the mean valid region confidence is below the threshold; individual low scores may
-also appear with overall `status: ok`, accompanied by a warning. No valid regions
-returns HTTP 200 with `status: empty`, `raw_text: ""`, empty regions, null mean
-confidence, and a warning. These outcomes preserve article/image metadata.
-Malformed native output or unexpected engine errors return `500 ocr_failed`;
-invalid OCR inputs return `422 ocr_invalid_image`.
-
-Normalization and endpoint tests use mocked engine outputs without downloaded
-models. They cover Korean/English punctuation, reading order, boxes, uncertain
-and empty output, model integrity, initialization reuse, limits, cooperative
-cancellation, and persistence/idempotency. The optional offline real-model check
-recognizes Korean and English from the synthetic fixture twice with sockets
-blocked. Local timings and memory observations are documented in
-[OCR model setup](docs/ocr-models.md); they do not establish publisher accuracy or
-Render Free memory fit.
+Full configuration, API errors, timeouts, account quotas, safe secret handling,
+and mocked/live checks are described in [Ollama image transcription](docs/ollama-vision.md).
+The previous [local OCR comparison](docs/ocr-models.md) is historical only.
 
 ## Render Free deployment
 
 Deploy this repository as a **Docker Web Service**, not Render's native Python
-runtime. Docker provisions verified ONNX models at build time and installs the
-CPU runtime library `libgomp1`. `render.yaml` describes this same Docker
+runtime. Docker installs the pinned web/image/Firebase dependencies; inference
+runs remotely on Ollama Cloud. `render.yaml` describes this same Docker
 approach with `plan: free`, `/health`, and conservative environment settings. It
 creates one web service with no disk, provisioned database, separate worker, or
 GPU. Manual/scheduled persistence requires external Firestore credentials. The
@@ -1502,23 +1440,19 @@ The builder and runtime both use **Python 3.12 on Debian Bookworm** via
 `python:3.12-slim-bookworm`. The minor-series image tag intentionally receives
 Python/security patch updates; it is not an immutable image digest. All Python
 runtime dependencies, including transitive dependencies, are pinned exactly in
-`requirements.txt` (notably `rapidocr==3.10.0`, `onnxruntime==1.31.0`, and `pillow==13.0.0`). Development
+`requirements.txt` (including `httpx==0.28.1` and `pillow==13.0.0`). Development
 dependencies remain separate. Debian packages track Bookworm security updates;
 the build is not bit-for-bit reproducible against a frozen apt snapshot.
 
-The multi-stage `Dockerfile`:
-
-1. Builds/downloads pinned Python wheels, including CPU ONNX Runtime and headless
-   OpenCV. No Tesseract compiler, headers or language packages are needed.
-2. Installs runtime `libgomp1` and `ca-certificates`, then the Python wheels.
-3. Downloads the pinned detector and Korean recognizer during the build, verifies
-   SHA-256 hashes, and checks OCR initialization. Weights and license notices are
-   packaged in the image; failed model provisioning fails the build.
-4. Runs as an unprivileged user with one Uvicorn worker.
+The multi-stage `Dockerfile` builds pinned Python wheels, installs them in a slim
+runtime image, and runs as an unprivileged user with one Uvicorn worker. It does
+not install RapidOCR, ONNX Runtime, Tesseract, OpenCV, an Ollama daemon, local model
+weights, or extra OCR system packages. The image builds without any AI key.
 
 No image or model is downloaded during service startup or from a health request.
-Application requests download only the submitted article and selected lesson
-image. OCR weights are immutable Docker image contents, not a writable cache.
+Application requests fetch the submitted article and selected lesson image,
+then send validated bytes to Ollama Cloud. Configure `OLLAMA_API_KEY` privately
+in Render Environment, or set `OLLAMA_API_KEY_FILE` to a mounted secret file.
 Request HTML and image buffers stay in memory and need no persistent filesystem.
 Manual and daily OCR/results are stored in Firestore. Redeploys/restarts can
 discard writable request files safely; Firestore remains the source of saved records.
@@ -1602,12 +1536,14 @@ triggers also require `SCRAPE_TRIGGER_TOKEN` as described above.
 | `FIRESTORE_DATABASE` | `(default)` | Optional Render Environment override |
 | `GOOGLE_APPLICATION_CREDENTIALS` | `/etc/secrets/service-account.json` | Path to privately mounted Render secret file |
 | `PORT` | Render-selected port | Render automatically; leave unset |
-| `OCR_MODEL_DIR` | `/app/.ocr-models/rapidocr` | Docker image and Blueprint |
+| `OLLAMA_API_KEY` | Private value, never committed | Set in Render Environment |
+| `OLLAMA_MODEL` | `gemma4:31b` | Application default and Blueprint |
+| `OLLAMA_TIMEOUT_SECONDS` | `60` | Application default and Blueprint |
 | `OMP_THREAD_LIMIT` | `1` | Docker image and Blueprint |
 | `SCRAPE_MAX_CONCURRENT_REQUESTS` | `1` | Application default and Blueprint |
 | `SCRAPE_TIMEOUT_SECONDS` | `90` | Application default and Blueprint |
 | `OCR_MAX_PIXELS` | `4000000` | Application default and Blueprint |
-| `OCR_TIMEOUT_MS` | `30000` | Application default and Blueprint |
+
 
 Do not set `PYTHON_VERSION` expecting it to alter this deployment: the Docker base
 image controls Python. Do not add `WEB_CONCURRENCY` or change the start command to
@@ -1652,17 +1588,17 @@ The **build pipeline is separate from the Free web-service runtime**. Render
 currently documents Starter pipeline workers as 2 CPU / 8 GB RAM, with a 16 GB
 build disk limit and 120-minute build timeout. Hobby workspaces use this tier and
 currently include 500 Starter pipeline minutes per month. These are build
-resources, not RAM/CPU available to running OCR. Downloading verified ONNX models,
-apt/pip network access and an uncached image build can consume several minutes;
+resources, not RAM/CPU available to running OCR. Downloading Python wheels and
+pip network access and an uncached image build can consume several minutes;
 there is no measured build-time promise here. Review billing/spend-limit settings
 and remaining pipeline minutes before repeated rebuilds. This repository does
 not request the paid Performance pipeline tier.
 [Render build pipeline](https://render.com/docs/build-pipeline).
 
-If building fails, inspect wheel installation, HTTPS model downloads, and hash
-verification. If initialization fails, verify CPU ONNX Runtime, `libgomp1`, and
-`OCR_MODEL_DIR`; do not compensate with startup model downloads. At runtime, `ocr_unavailable` requires fixing/rebuilding the image or
-its model path; `scrape_busy`/`ocr_busy` can be retried after active work completes.
+If building fails, inspect Python wheel installation. No model or credential is
+required to build or serve health. At runtime, `ollama_not_configured` requires
+setting the private key; provider access, quota and timeout errors are described
+in [Ollama setup](docs/ollama-vision.md); `scrape_busy`/`ocr_busy` can be retried after active work completes.
 Out-of-memory restarts or repeated deadlines require smaller inputs/lower limits
 or separately hosted OCR; adding workers makes the Free memory problem worse.
 
@@ -1687,7 +1623,7 @@ container build and a real lesson scrape before treating the service as verified
 Prepared locally:
 
 - Docker build with pinned Python runtime packages, native OCR system libraries,
-  and build-time Korean/English models; no runtime model downloads or persistent
+  and remote Ollama vision; no model downloads or persistent
   request files.
 - Explicit Free Blueprint, `$PORT` binding on `0.0.0.0`, one worker, one default
   active scrape, bounded network/image/OCR resources, and lightweight `/health`.

@@ -18,6 +18,8 @@
   ],
   "fieldOverrides": [
     {"collectionGroup": "chosun_lessons", "fieldPath": "payload_json", "indexes": []},
-    {"collectionGroup": "chosun_lessons", "fieldPath": "article", "indexes": []}
+    {"collectionGroup": "chosun_lessons", "fieldPath": "article", "indexes": []},
+    {"collectionGroup": "revisions", "fieldPath": "payload_json", "indexes": []},
+    {"collectionGroup": "revisions", "fieldPath": "article", "indexes": []}
   ]
 }

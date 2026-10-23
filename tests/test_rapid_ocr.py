@@ -125,7 +125,7 @@ def test_deadline_failure_and_next_request_recovery(monkeypatch):
 
 
 def test_deadline_session_terminates_native_run_without_sleep(monkeypatch):
-    import onnxruntime
+    onnxruntime = pytest.importorskip("onnxruntime")
     options = SimpleNamespace(terminate=False)
     monkeypatch.setattr(onnxruntime, 'RunOptions', lambda: options)
     timer = Mock()
@@ -164,7 +164,7 @@ def test_checksums_reject_wrong_model(tmp_path):
 
 
 def test_explicit_model_cpu_settings_and_no_orientation(monkeypatch, tmp_path):
-    import rapidocr
+    rapidocr = pytest.importorskip("rapidocr")
     paths = [tmp_path/'det.onnx', tmp_path/'rec.onnx']
     monkeypatch.setattr(rapid_ocr, 'verify_models', Mock(return_value=paths))
     constructor = Mock()

@@ -16,6 +16,7 @@ from app.services.article import fetch_article
 from app.services.parsing import parse_article_html
 from app.services.images import download_lesson_image
 from app.services.ocr import recognize_image
+from app.services.recognition import RecognizedLesson
 from app.services.lesson import parse_lesson
 from app.services.errors import ArticleFetchError
 from app.services.urls import validate_article_url
@@ -80,12 +81,17 @@ async def scrape_article(article_url: HttpUrl) -> ScrapeResponse:
             stage = "image_download"
             downloaded = await download_lesson_image(parsed.lesson_image)
             stage = "ocr"
-            ocr = await recognize_image(downloaded.data)
+            recognized = await recognize_image(downloaded.data)
             stage = "lesson_parse"
-            lesson = await anyio.to_thread.run_sync(
-                lambda: parse_lesson(ocr, downloaded.metadata.width, downloaded.metadata.height,
-                    article_title=parsed.article.title)
-            )
+            if isinstance(recognized, RecognizedLesson):
+                ocr, lesson = recognized.ocr, recognized.lesson
+            else:
+                # Compatibility for historical adapters and deterministic fixtures.
+                ocr = recognized
+                lesson = await anyio.to_thread.run_sync(
+                    lambda: parse_lesson(ocr, downloaded.metadata.width, downloaded.metadata.height,
+                        article_title=parsed.article.title)
+                )
     except ArticleFetchError:
         raise
     except TimeoutError as exc:

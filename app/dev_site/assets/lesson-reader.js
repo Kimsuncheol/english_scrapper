@@ -197,10 +197,11 @@ function renderLessonCards(items, container) {
       fields.append(section);
     }
     const rawHeading = document.createElement("h4");
-    rawHeading.textContent = "Full OCR text";
+    const aiVision = item.ocr.engine?.startsWith("ollama/");
+    rawHeading.textContent = aiVision ? "AI image transcription" : "Full OCR text";
     const rawNote = document.createElement("p");
     rawNote.className = "muted";
-    rawNote.textContent = "OCR lines are reflowed into paragraphs and complete speaker turns. Publisher credits and advertising are excluded from this lesson view. Recognition errors may remain; compare the source image when needed.";
+    rawNote.textContent = aiVision ? "Ollama read this lesson directly from its image. AI recognition can contain errors; compare the original image when correcting text." : "OCR lines are reflowed into paragraphs and complete speaker turns. Publisher credits and advertising are excluded from this lesson view. Recognition errors may remain; compare the source image when needed.";
     const raw = document.createElement("pre");
     raw.className = "lesson-raw-text";
     raw.textContent = lessonTextLines(item.ocr.raw_text).join("\n") || "OCR returned no lesson text.";
@@ -215,11 +216,11 @@ function renderLessonCards(items, container) {
     reasons.textContent = item.lesson.reasons.join(" ");
     const regions = document.createElement("details");
     const regionHeading = document.createElement("summary");
-    regionHeading.textContent = `OCR regions, confidence and bounding boxes (${item.ocr.regions.length})`;
+    regionHeading.textContent = aiVision ? "AI transcript lines · measured OCR boxes and confidence unavailable" : `OCR regions, confidence and bounding boxes (${item.ocr.regions.length})`;
     const regionText = document.createElement("pre");
     regions.append(regionHeading, regionText);
     regions.addEventListener("toggle", () => {
-      if (regions.open && !regionText.textContent) regionText.textContent = JSON.stringify(item.ocr.regions, null, 2);
+      if (regions.open && !regionText.textContent) regionText.textContent = JSON.stringify(aiVision ? item.ocr.lines : item.ocr.regions, null, 2);
     });
     // Put the complete readable lesson before optional classification/debugging.
     // Unassigned sections must not bury the available text under empty panels.
