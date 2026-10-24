@@ -78,3 +78,23 @@ test('AI dialogue fields reflow wrapped lines into separate colonless speaker tu
   assert.equal(turns[1].speaker, 'B');
   assert.equal(turns[2].text, '좋아, 천천히 하자.');
 });
+
+test('organized study view uses the expression title and groups bilingual examples', () => {
+  context.document = {createElement(tag) {
+    return {tag, children: [], textContent: '', append(...children) { this.children.push(...children); }};
+  }};
+  const field = text => ({text, line_indices: []});
+  const view = context.renderStructuredReadingView({expression: 'Take your time.',
+    lesson: {fields: {expression: field('Take your time.'),
+      korean_meaning: field('천천히 해.'), korean_explanation: field('서두르지 말라는 표현입니다.'),
+      english_dialogue: field('A: Take your time.\nB: Thanks.'),
+      korean_dialogue_translation: field('A: 천천히 해.\nB: 고마워.')}},
+    ocr: {lines: []}});
+  assert.equal(view.children[0].textContent, 'Take your time.');
+  assert.deepEqual(Array.from(view.children.slice(1), section => section.children[0].textContent),
+    ['Meanings', 'Explanation', 'Examples']);
+  const examples = view.children[3];
+  assert.equal(examples.children[1].lang, 'en');
+  assert.equal(examples.children[2].lang, 'ko');
+  assert.equal(examples.children[1].children[1].children[1].textContent, 'Take your time.');
+});

@@ -165,12 +165,13 @@ function renderStructuredReadingView(item) {
   expression.textContent = item.expression || item.lesson.fields.expression?.text || "Expression needs review";
   view.append(expression);
   const sections = [
-    ["korean_meaning", "Meaning", "ko"],
+    ["korean_meaning", "Meanings", "ko"],
     ["korean_explanation", "Explanation", "ko"],
-    ["english_dialogue", "English dialogue", "en"],
+    ["english_dialogue", "English", "en"],
     ["korean_dialogue_translation", "Korean translation", "ko"],
     ["vocabulary_notes", "Vocabulary", null],
   ];
+  let examples = null;
   for (const [key, label, language] of sections) {
     const text = lessonTextLines(item.lesson.fields[key]?.text).join("\n").trim();
     if (!text) continue;
@@ -201,7 +202,17 @@ function renderStructuredReadingView(item) {
       paragraph.textContent = text.replace(/\n/g, " ");
       section.append(paragraph);
     }
-    view.append(section);
+    if (key.includes("dialogue")) {
+      if (!examples) {
+        examples = document.createElement("section");
+        examples.className = "lesson-reader-section";
+        const heading = document.createElement("h5");
+        heading.textContent = "Examples";
+        examples.append(heading);
+        view.append(examples);
+      }
+      examples.append(section);
+    } else view.append(section);
   }
   // Keep unassigned transcript lines visible instead of dropping uncertain text.
   const assigned = new Set(sections.flatMap(([key]) => item.lesson.fields[key]?.line_indices || []));
@@ -286,7 +297,7 @@ function renderLessonCards(items, container) {
     const originalHeading = document.createElement("summary");
     originalHeading.textContent = "Plain lesson text · original line breaks";
     original.append(originalHeading, raw);
-    const reader = aiVision && item.lesson.fields.expression
+    const reader = item.lesson.fields.expression
       ? renderStructuredReadingView(item) : renderOCRReadingView(item.ocr, item.expression);
     const reasons = document.createElement("p");
     reasons.className = "muted";

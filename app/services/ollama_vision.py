@@ -106,6 +106,13 @@ complete a sentence from memory, rewrite dialogue, add examples, or invent text.
 Preserve Korean spelling/spacing, English apostrophes, punctuation, A/B speaker
 labels, and reading order. Read all lesson sections, including explanation,
 English dialogue, Korean dialogue translation, vocabulary and source credit.
+Organize the lesson in this study order in fields: expression is the lesson
+title (the English expression being taught, not the publisher headline);
+korean_meaning contains its meanings; korean_explanation contains usage and
+explanation; english_dialogue contains all printed examples, including standalone
+example sentences as well as dialogue; korean_dialogue_translation contains
+their printed Korean translations. Keep vocabulary notes separate. Classify all
+visible lesson text during this single transcription request.
 Exclude unrelated advertisements and contact telephone numbers from the lesson.
 Return only one JSON object, without Markdown or commentary, matching the schema
 below. Each item in lines is one visible text line (no embedded newlines). Use
