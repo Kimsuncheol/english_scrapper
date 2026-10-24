@@ -1,0 +1,91 @@
+name: Prepare expression archive
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Audit saved content or prepare missing lessons
+        type: choice
+        options: [apply, audit]
+        default: apply
+  schedule:
+    - cron: '17 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: expression-archive-preparation
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.ARCHIVE_BACKFILL_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      FIREBASE_PROJECT_ID: english-scrapper
+      FIRESTORE_DATABASE: '(default)'
+      MODE: ${{ inputs.mode || 'apply' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install isolated worker dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements-dev.txt
+      - name: Verify worker before accessing production content
+        run: .venv/bin/python -m pytest tests/test_archive_backfill.py tests/test_ollama_vision.py -q
+      - name: Prepare private Firestore credentials
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/archive-worker-credentials.json
+        run: |
+          .venv/bin/python - <<'PY'
+          import json, os
+          from pathlib import Path
+          value = json.loads(os.environ['FIREBASE_SERVICE_ACCOUNT_JSON'])
+          if value.get('project_id') != os.environ['FIREBASE_PROJECT_ID']:
+              raise SystemExit('Worker credentials must belong to the configured project')
+          target = Path(os.environ['GOOGLE_APPLICATION_CREDENTIALS'])
+          target.write_text(json.dumps(value))
+          target.chmod(0o600)
+          PY
+      - name: Resume archive preparation
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/archive-worker-credentials.json
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          OLLAMA_MODEL: gemma4:31b
+          OLLAMA_MAX_OUTPUT_TOKENS: '8192'
+          PYTHONUNBUFFERED: '1'
+        run: |
+          args=(--concurrency 2 --max-seconds 2700 --passes 3 --max-attempts 5)
+          case "$MODE" in
+            apply) args+=(--apply --refresh-catalog) ;;
+            audit) ;;
+            *) exit 2 ;;
+          esac
+          .venv/bin/python -m scripts.backfill_archive "${args[@]}"
+      - name: Publish readiness summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          report = Path('.backfill/archive.json')
+          if report.exists():
+              state = json.loads(report.read_text())['summary']
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+                  output.write(f"Ready: **{state['ready']} / {state['total']}**\n\n")
+                  output.write(f"Remaining: {state['remaining']}\n\nStatus: {state['status']}\n\n")
+                  output.write(f"Needs review: {state.get('review_required', 0)}\n")
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: archive-readiness-${{ github.run_id }}
+          path: .backfill/archive.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7

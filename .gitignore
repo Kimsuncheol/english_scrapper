@@ -11,3 +11,6 @@ __pycache__/
 secrets/
 *-debug.log
 .firebase/
+
+# Resumable archive transcription reports and worker logs
+.backfill/

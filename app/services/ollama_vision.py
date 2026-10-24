@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 from threading import Lock
+from typing import Literal
 import warnings
 
 import anyio
@@ -33,7 +34,7 @@ class OllamaConfig:
     max_image_bytes: int = 10 * 1024 * 1024
     max_pixels: int = 4_000_000
     max_response_bytes: int = 1024 * 1024
-    max_output_tokens: int = 4096
+    max_output_tokens: int = 8192
 
     def __post_init__(self):
         if not re.fullmatch(r"[A-Za-z0-9_.:/-]{1,120}", self.model):
@@ -58,7 +59,7 @@ class OllamaConfig:
             max_image_bytes=int(os.getenv("OCR_MAX_BYTES", str(10*1024*1024))),
             max_pixels=int(os.getenv("OCR_MAX_PIXELS", "4000000")),
             max_response_bytes=int(os.getenv("OLLAMA_MAX_RESPONSE_BYTES", str(1024*1024))),
-            max_output_tokens=int(os.getenv("OLLAMA_MAX_OUTPUT_TOKENS", "4096")))
+            max_output_tokens=int(os.getenv("OLLAMA_MAX_OUTPUT_TOKENS", "8192")))
 
 
 class LineFields(BaseModel):
@@ -87,16 +88,91 @@ class Transcription(BaseModel):
         return self
 
 
+class LessonSegment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    section: Literal['expression', 'korean_meaning', 'korean_explanation',
+                     'english_dialogue', 'korean_dialogue_translation',
+                     'vocabulary_notes', 'source_credit', 'other']
+    text: str = Field(min_length=1, max_length=4096)
+    uncertain: bool = False
+
+
+class SegmentedTranscription(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    segments: list[LessonSegment] = Field(max_length=300)
+
+    def as_transcription(self):
+        # Each paragraph is emitted once. References are derived locally rather
+        # than asking the model to duplicate text or calculate line numbers.
+        lines = [segment.text for segment in self.segments]
+        fields = {name: [segment.text for segment in self.segments
+                         if segment.section == name] or None for name in FIELD_NAMES}
+        return Transcription(lines=lines, fields=LineFields(**fields),
+                             uncertain_lines=[segment.text for segment in self.segments
+                                              if segment.uncertain])
+
+
 def matching_line_indices(lines: list[str], texts: list[str]) -> list[int]:
-    """Derive references server-side; model arithmetic is not a source of truth."""
+    """Keep source references despite whitespace-only model reflow.
+
+    Exact line references support noncontiguous fields. If the model joined or
+    split visual wraps, accept only a contiguous span with identical nonspace
+    characters, and always return the original source text, never the rewrite.
+    """
     indices, start = [], 0
     for text in texts:
         index = next((i for i in range(start, len(lines)) if lines[i].strip() == text.strip()), None)
         if index is None:
-            raise ValueError("Field text is not present in transcript reading order")
+            break
         indices.append(index)
-        start = index+1
-    return indices
+        start = index + 1
+    else:
+        return indices
+    target = re.sub(r"\s+", "", "".join(texts))
+    if target:
+        normalized = [re.sub(r"\s+", "", line) for line in lines]
+        for first in range(len(lines)):
+            span = ""
+            for last in range(first, len(lines)):
+                span += normalized[last]
+                if not target.startswith(span):
+                    break
+                if span == target:
+                    return list(range(first, last + 1))
+    raise ValueError("Field text is not present in transcript reading order")
+
+
+def recover_dialogue_fields(lines, fields):
+    """Recover only unambiguous, matching bilingual speaker runs from source.
+
+    Logical turns must occupy whole consecutive lines, and English/Korean
+    speaker sequences must match. Never guess translations or wrapped bounds.
+    """
+    runs = []
+    current = []
+    language = None
+    for index, line in enumerate(lines):
+        match = re.match(r"^\s*([A-Z])(?:\s*[:：.)-]\s*|\s+)(\S.*)$", line)
+        kind = ('ko' if re.search(r'[가-힣]', match[2]) else 'en') if match else None
+        if kind != language or not kind:
+            if len(current) >= 2:
+                runs.append((language, current))
+            current = []
+        if kind:
+            current.append((index, match[1]))
+        language = kind
+    if len(current) >= 2:
+        runs.append((language, current))
+    pairs = [(en, ko) for lang, en in runs if lang == 'en'
+             for other, ko in runs if other == 'ko' and en[-1][0] < ko[0][0]
+             and [speaker for _, speaker in en] == [speaker for _, speaker in ko]]
+    if len(pairs) != 1:
+        return
+    for name, turns in zip(('english_dialogue', 'korean_dialogue_translation'), pairs[0]):
+        if name not in fields:
+            indices = [index for index, _ in turns]
+            fields[name] = LessonField(text="\n".join(lines[i] for i in indices),
+                region_indices=[], line_indices=indices, confidence=None, bounding_box=None)
 
 
 SYSTEM_PROMPT = """Transcribe a Korean/English language-learning lesson image.
@@ -106,24 +182,25 @@ complete a sentence from memory, rewrite dialogue, add examples, or invent text.
 Preserve Korean spelling/spacing, English apostrophes, punctuation, A/B speaker
 labels, and reading order. Read all lesson sections, including explanation,
 English dialogue, Korean dialogue translation, vocabulary and source credit.
-Organize the lesson in this study order in fields: expression is the lesson
-title (the English expression being taught, not the publisher headline);
-korean_meaning contains its meanings; korean_explanation contains usage and
-explanation; english_dialogue contains all printed examples, including standalone
-example sentences as well as dialogue; korean_dialogue_translation contains
-their printed Korean translations. Keep vocabulary notes separate. Classify all
-visible lesson text during this single transcription request.
-Exclude unrelated advertisements and contact telephone numbers from the lesson.
-Return only one JSON object, without Markdown or commentary, matching the schema
-below. Each item in lines is one visible text line (no embedded newlines). Use
-[unreadable] only for an unreadable span; record that line in
-uncertain_lines by copying the whole uncertain line verbatim. Never guess an
-unreadable word. Fields contain arrays of exact text lines copied verbatim from
-lines in the same reading order; they must not contain newly written text. Use null for missing/ambiguous fields. Exclude section-heading labels from
-field content, but retain visible headings in lines. For a non-lesson or blank
-image return no lines and null fields. Do not invent confidence or coordinates.
+Assign each paragraph to exactly one section: expression is the English lesson
+title, not the publisher headline; korean_meaning is the short Korean meaning;
+korean_explanation is the usage explanation; english_dialogue contains every
+English example or dialogue turn; korean_dialogue_translation contains their
+printed translations; vocabulary_notes and source_credit contain those sections.
+Use other for publisher headings, issue numbers and unclassified visible text.
+Exclude unrelated advertisements and telephone numbers.
+Return only one JSON object matching the schema, without Markdown or commentary.
+Each segment is one logical paragraph or one speaker turn. Emit its visible text
+ONCE, in source reading order; never duplicate the text into a separate fields
+object. Join visual line wraps within a paragraph/turn, including split Korean
+words; preserve actual word spacing. No embedded newlines. Keep A/B speaker
+labels and never combine different turns or sections. Never invent missing
+meanings, examples, explanations or translations. Use [unreadable] for unreadable
+spans and set uncertain=true on that segment. For absent sections simply emit no
+segment for that section. For a non-lesson/blank image return an empty segments
+array. Do not invent confidence or coordinates.
 Schema:
-""" + json.dumps(Transcription.model_json_schema(), ensure_ascii=False)
+""" + json.dumps(SegmentedTranscription.model_json_schema(), ensure_ascii=False)
 
 
 def prepare_image(image_bytes: bytes, config: OllamaConfig) -> str:
@@ -160,7 +237,10 @@ def normalize_transcription(content: str, model: str) -> RecognizedLesson:
     if match:
         stripped = match.group(1)
     try:
-        parsed = Transcription.model_validate_json(stripped)
+        envelope = json.loads(stripped)
+        segmented = isinstance(envelope, dict) and "segments" in envelope
+        parsed = (SegmentedTranscription.model_validate(envelope).as_transcription()
+                  if segmented else Transcription.model_validate(envelope))
     except (ValidationError, ValueError) as exc:
         raise OCRError("ollama_invalid_response", "Ollama returned an invalid transcription. Try again later.", 502) from exc
     note = "AI image transcription is unverified; compare the original lesson image when correcting text."
@@ -179,6 +259,7 @@ def normalize_transcription(content: str, model: str) -> RecognizedLesson:
                 continue
             fields[name] = LessonField(text="\n".join(parsed.lines[i] for i in indices),
                 region_indices=[], line_indices=indices, confidence=None, bounding_box=None)
+    recover_dialogue_fields(parsed.lines, fields)
     present = set(fields)
     status = "empty" if not parsed.lines else "unparsed" if not fields else "structured" if (
         all(name in present for name in FIELD_NAMES if name != "source_credit")
@@ -189,7 +270,7 @@ def normalize_transcription(content: str, model: str) -> RecognizedLesson:
             status="empty" if not parsed.lines else "low_confidence" if parsed.uncertain_lines else "ok",
             warnings=notes),
         lesson=LessonParsingResult(status=status, fields=LessonFields(**fields),
-            method="ollama_vision_v1", reasons=["Fields reference AI-transcribed lines; measured OCR boxes/confidences are unavailable."]))
+            method="ollama_vision_v2" if segmented else "ollama_vision_v1", reasons=["Fields reference AI-transcribed lines; measured OCR boxes/confidences are unavailable."]))
 
 
 class OllamaVisionService:

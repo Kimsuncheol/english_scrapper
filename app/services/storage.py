@@ -164,6 +164,25 @@ class FirestoreStore:
         except STORAGE_ERRORS as exc:
             raise StorageUnavailable() from exc
 
+    async def saved_content_records(self):
+        """One bounded projection for a bulk readiness audit, not N HTTP reads."""
+        await self.initialize()
+        records = []
+        async for snapshot in self.collection("lessons").select(
+            ["id", "canonical_url", "payload_json"]
+        ).stream(timeout=30, retry=None):
+            row = snapshot.to_dict()
+            row["payload"] = json.loads(row.pop("payload_json"))
+            records.append(row)
+        return records
+
+    async def backfill_retry_states(self):
+        await self.initialize()
+        return {snapshot.id: snapshot.to_dict() async for snapshot in
+                self.collection("queue").select(
+                    ["attempts", "error_code", "state", "last_attempt_at"]
+                ).stream(timeout=30, retry=None)}
+
     async def articles(self, limit=20, offset=0):
         await self.initialize()
         try:

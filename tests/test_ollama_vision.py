@@ -320,3 +320,71 @@ def test_opt_in_refresh_endpoint_updates_ai_text_and_keeps_revision(monkeypatch,
     assert persisted_store.revisions==[old]
     assert client.post('/_dev/test-site/lessons/unknown/transcribe').status_code==404
     processor.assert_awaited_once()
+
+
+def test_reflowed_fields_keep_original_source_lines_without_losing_sections():
+    data = transcription()
+    data['lines'][3:5] = ["A: Shall I", "read first?", "B: Let's take turns."]
+    data['fields']['english_dialogue'] = ["A: Shall I read first?", "B: Let's take turns."]
+    result = normalize_transcription(json.dumps(data), 'gemma4:31b')
+    assert result.lesson.fields.english_dialogue.text == "A: Shall I\nread first?\nB: Let's take turns."
+    assert result.lesson.fields.english_dialogue.line_indices == [3, 4, 5]
+    assert result.lesson.status == 'structured'
+    assert result.ocr.lines == data['lines']
+
+
+def test_whitespace_matching_never_accepts_changed_words():
+    data = transcription()
+    data['fields']['english_dialogue'] = ["A: Shall we read first?", "B: Let's take turns."]
+    result = normalize_transcription(json.dumps(data), 'gemma4:31b')
+    # The rewritten text is rejected; matching source speaker runs can recover
+    # the original wording without accepting the model's changed words.
+    assert 'Shall I read first?' in result.lesson.fields.english_dialogue.text
+    assert 'Shall we' not in result.lesson.fields.english_dialogue.text
+    assert result.ocr.lines == data['lines']
+
+
+def test_missing_dialogue_classification_recovers_only_aligned_source_turns():
+    data = transcription()
+    data['fields']['english_dialogue'] = None
+    data['fields']['korean_dialogue_translation'] = None
+    result = normalize_transcription(json.dumps(data), 'gemma4:31b')
+    assert result.lesson.fields.english_dialogue.line_indices == [3, 4]
+    assert result.lesson.fields.korean_dialogue_translation.line_indices == [5, 6]
+    data['lines'][6] = 'C: 번갈아 하자.'
+    result = normalize_transcription(json.dumps(data), 'gemma4:31b')
+    assert result.lesson.fields.english_dialogue is None
+    assert result.lesson.fields.korean_dialogue_translation is None
+
+
+def test_segmented_output_builds_raw_text_and_fields_without_duplicate_model_text():
+    data = transcription()
+    categories = {text: name for name, texts in data['fields'].items()
+                  for text in (texts or [])}
+    segments = [{'section': categories[line], 'text': line} for line in data['lines']]
+    result = normalize_transcription(json.dumps({'segments': segments}), 'gemma4:31b')
+    assert result.ocr.lines == data['lines']
+    assert result.lesson.fields.korean_meaning.text == '번갈아 하자.'
+    assert result.lesson.fields.english_dialogue.line_indices == [3, 4]
+    assert result.lesson.status == 'structured'
+    assert result.lesson.method == 'ollama_vision_v2'
+
+
+def test_segmented_uncertainty_and_unassigned_visible_text_remain_preserved():
+    segments = [{'section': 'other', 'text': 'Publisher heading'},
+                {'section': 'expression', 'text': 'Visible expression'},
+                {'section': 'korean_meaning', 'text': '[unreadable]', 'uncertain': True}]
+    result = normalize_transcription(json.dumps({'segments': segments}), 'gemma4:31b')
+    assert result.ocr.raw_text == 'Publisher heading\nVisible expression\n[unreadable]'
+    assert result.ocr.status == 'low_confidence'
+    assert result.lesson.fields.korean_explanation is None
+
+
+@pytest.mark.parametrize('segment', [
+    {'section': 'invented', 'text': 'No'},
+    {'section': 'expression', 'text': 'A\nB'},
+    {'section': 'expression', 'text': ''},
+])
+def test_invalid_segments_are_rejected(segment):
+    with pytest.raises(OCRError):
+        normalize_transcription(json.dumps({'segments': [segment]}), 'gemma4:31b')

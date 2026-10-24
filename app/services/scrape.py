@@ -62,7 +62,7 @@ class AdmissionGate:
 admission = AdmissionGate()
 
 
-async def scrape_article(article_url: HttpUrl) -> ScrapeResponse:
+async def scrape_article(article_url: HttpUrl, *, recognizer=None) -> ScrapeResponse:
     """Validate and run all stages without leaking payloads into logs."""
     config = ScrapeConfig.from_env()
     try:
@@ -81,7 +81,7 @@ async def scrape_article(article_url: HttpUrl) -> ScrapeResponse:
             stage = "image_download"
             downloaded = await download_lesson_image(parsed.lesson_image)
             stage = "ocr"
-            recognized = await recognize_image(downloaded.data)
+            recognized = await (recognizer or recognize_image)(downloaded.data)
             stage = "lesson_parse"
             if isinstance(recognized, RecognizedLesson):
                 ocr, lesson = recognized.ocr, recognized.lesson

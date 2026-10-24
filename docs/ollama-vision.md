@@ -64,7 +64,7 @@ production processing.
 | `OLLAMA_API_KEY_FILE` | unset | Alternative secret file, used when the key variable is unset |
 | `OLLAMA_MODEL` | `gemma4:31b` | Cloud vision model; use one enabled on your Ollama account |
 | `OLLAMA_TIMEOUT_SECONDS` | `60` | Total time for preparing and transcribing one image |
-| `OLLAMA_MAX_OUTPUT_TOKENS` | `4096` | Bound generated output; truncation is rejected |
+| `OLLAMA_MAX_OUTPUT_TOKENS` | `8192` | Bound generated output; truncation is rejected |
 | `OLLAMA_MAX_RESPONSE_BYTES` | `1048576` | Bound decoded provider response size |
 | `OCR_MAX_BYTES` | `10485760` | Maximum image bytes sent for transcription |
 | `OCR_MAX_PIXELS` | `4000000` | Image decoding limit before sending to Ollama |
@@ -159,3 +159,97 @@ Sources: [Ollama Cloud](https://docs.ollama.com/cloud),
 [image inputs](https://docs.ollama.com/capabilities/vision),
 [structured-output limitation](https://docs.ollama.com/capabilities/structured-outputs),
 [Gemma 4 vision models](https://ollama.com/library/gemma4).
+
+## Upgrade historical lessons
+Tesseract records are intentionally reused by normal scrapes; they often have
+only a title because the old parser cannot classify unlabeled image sections.
+Audit with `python scripts/upgrade_saved_lessons.py --base-url https://HOST`.
+Add `--apply` to sequentially transcribe legacy records through the existing
+opt-in lab route, preserving payload revisions. No automatic inference occurs
+on reads. The script skips all Ollama records and reports failed IDs without retrying inference.
+The transcription prompt uses logical paragraphs and speaker turns to avoid
+carrying printed line wraps into Korean explanations and vocabulary.
+
+Field validation accepts whitespace-only reflow across contiguous source lines.
+All non-whitespace characters must match; changed words remain unassigned.
+Saved field text and line indices always reference the original transcript.
+This prevents harmless model wrapping differences from dropping whole sections.
+
+The output allowance is 8192 tokens because the response carries both the full
+transcript and its classified sections. Truncated responses are still rejected;
+failed upgrades preserve the prior saved payload.
+
+If dialogue classification is absent or invalid, the scrape-time normalizer can
+recover a unique pair of consecutive English/Korean speaker runs whose speaker
+sequences match exactly. It copies complete original lines only; ambiguous or
+wrapped runs remain unassigned. No translation or extra inference is performed.
+
+## Full archive content backfill
+
+The published catalog indexes titles and dates; catalog coverage is **not** saved
+lesson coverage. The first repair upgraded existing OCR records only. A separate
+initial backfill is required to prepare articles that have never been scraped.
+
+Run an audit with `python -m scripts.backfill_archive`. Set the existing server
+`FIREBASE_PROJECT_ID`, ADC/service-account credentials and Ollama credentials.
+Add `--apply` to process missing/incomplete articles. Use repeated
+`--priority 'expression'` arguments to prepare reported lessons first. A
+`--limit N` bounds attempts during a controlled run. The default allows three
+passes; provider quota/auth failures stop the run immediately.
+
+The worker holds an archive-backfill lease and uses the existing per-article
+lease, canonical identity, queue and revision boundary. It skips already-ready
+lessons, and rejects incomplete candidate transcriptions **before** saving, so
+an unsuccessful refresh never replaces useful prior content. Ready means a
+saved transcript, expression, Korean meaning, explanation, English examples and
+Korean example translations. Vocabulary and attribution may be absent in print;
+the worker never invents them. Unreadable required sections stay unfinished.
+
+Progress is saved after every attempt to Firestore
+`chosun_archive_backfill/state` and locally to `.backfill/archive.json` (including
+per-lesson failures). `status: complete` is written only when every catalog item
+passes content readiness. Re-running safely resumes by inspecting saved content;
+never infer completion from a title count or a successful index job. A failed
+attempt is recorded in the durable queue; failed/incomplete results remain
+explicit in the report. No user read or page view triggers this worker.
+
+### Single-copy classification output
+The current inference prompt requests `segments`, each containing a section name
+and one visible paragraph/speaker turn. It emits every paragraph once, avoiding
+duplicate transcript/field output and fragile model-generated references. The
+server derives both the raw transcript and structured fields from these same
+segments and records `lesson.method: ollama_vision_v2`. Historic v1 response
+normalization remains supported. Unclassified visible text stays in the raw
+transcript and uncertain/missing required sections are never invented.
+
+## Hosted preparation and maintenance
+
+`.github/workflows/archive-backfill.yml` runs on GitHub-hosted Ubuntu workers,
+with two concurrent extractions and a 45-minute processing budget inside a
+60-minute job. Every successful result is persisted immediately in Firestore;
+time-budget exits are normal checkpoints. An hourly run resumes missing work.
+The existing `archive-backfill` lease prevents a local/hosted double run during
+handoff, and every article retains its own lease and revision history.
+
+Configure encrypted repository secrets `FIREBASE_SERVICE_ACCOUNT_JSON` and
+`OLLAMA_API_KEY`, then set repository variable `ARCHIVE_BACKFILL_ENABLED=true`.
+The workflow supports a manual `audit` run that performs no transcription or
+Firestore writes. It uses the same pinned Python requirements in an isolated
+virtual environment and runs mocked worker tests before touching production.
+Credentials are written privately in the runner's temporary directory and are
+never included in reports or uploaded artifacts.
+
+Apply runs refresh the publisher's first archive page and publish its metadata
+snapshot before checking readiness. This brings newly published lessons into
+the same preparation pipeline. Successful/unchanged saved lessons are skipped.
+If a long indexing outage leaves gaps beyond the first page, refresh the full
+archive with `python -m scripts.index_archive --resume` before resuming.
+
+Retries use exponential backoff capped at 60 seconds. The durable queue's
+attempt count bounds retries across hosted restarts (five attempts by default).
+Persistent failures are marked `review_required` and remain unfinished; they
+are never silently counted as prepared. Provider quota/authentication or storage
+failures block the current run. Fix the reported condition before retrying; no
+partial result replaces a useful saved lesson. Inspect the Actions job summary,
+its readiness JSON artifact, or `chosun_archive_backfill/state` for coverage and
+persistent failures. Only `remaining: 0` permits status `complete`.
