@@ -22,7 +22,7 @@ services:
       - key: OLLAMA_TIMEOUT_SECONDS
         value: "60"
       - key: OLLAMA_MAX_OUTPUT_TOKENS
-        value: "4096"
+        value: "8192"
       - key: SCRAPE_MAX_CONCURRENT_REQUESTS
         value: "1"
       - key: SCRAPE_TIMEOUT_SECONDS
