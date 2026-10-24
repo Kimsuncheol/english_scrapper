@@ -1752,3 +1752,12 @@ reading view. **Back to all lessons** links appear above and below the lesson.
 The homepage no longer embeds multiple complete OCR lessons. Unknown saved IDs
 return an HTML 404 with a home link. Both pages require `ENABLE_TEST_SITE=true`;
 no public production routes or SSRF exceptions are introduced.
+
+
+### Expression catalog for Vocard
+`GET /api/v1/expression-catalog` returns `{items, total}` from the same
+published archive snapshot used by the test website (up to 4,000 entries).
+Each item includes `article_url`, `title`, `expression`, and `issue_date`.
+It includes untranscribed entries and never starts scraping or AI processing.
+Saved detail remains available through `GET /api/v1/articles/{id}`; an
+unprocessed catalog entry may have no saved article yet.

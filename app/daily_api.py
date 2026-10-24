@@ -87,3 +87,9 @@ async def saved_article(article_id: str, store=Depends(get_store)):
     if value is None:
         raise ArticleFetchError("article_not_found", "No saved article has that ID.", 404)
     return value
+
+
+@router.get("/expression-catalog")
+async def expression_catalog(store=Depends(get_store)):
+    """All publisher-listed expression titles; transcription is not required."""
+    return await store.expression_catalog()

@@ -252,6 +252,29 @@ class FirestoreStore:
                 return False
             raise
 
+    async def expression_catalog(self):
+        """Read the same published snapshot as the website, without OCR."""
+        await self.initialize()
+        try:
+            ref = self.collection("archive_state").document("series")
+            state = (await ref.get(**RPC)).to_dict() or {}
+            if await self.ensure_archive_published(state):
+                state = (await ref.get(**RPC)).to_dict() or {}
+            count = state.get("published_total", 0)
+            if not 0 <= count <= 4000:
+                raise StorageUnavailable()
+            pages = {}
+            async for snapshot in self.collection("archive_pages").stream(**RPC):
+                if snapshot.id.isdigit() and 1 <= int(snapshot.id) <= (count + 9) // 10:
+                    pages[int(snapshot.id)] = snapshot.to_dict().get("items", [])
+            items = [row for page in sorted(pages) for row in pages[page]]
+            after = (await ref.get(**RPC)).to_dict() or {}
+            if len(items) != count or after.get("published_revision") != state.get("published_revision"):
+                raise StorageUnavailable()
+            return {"items": items, "total": count}
+        except STORAGE_ERRORS as exc:
+            raise StorageUnavailable() from exc
+
     async def archive_entries(self, page=1, day=None):
         await self.initialize()
         try:
