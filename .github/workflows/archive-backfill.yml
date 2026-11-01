@@ -8,7 +8,8 @@ on:
         options: [apply, audit]
         default: apply
   schedule:
-    - cron: '17 * * * *'
+    - cron: '17 * * * 1-5'
+      timezone: Asia/Seoul
 permissions:
   contents: read
 concurrency:
@@ -20,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      FIREBASE_PROJECT_ID: english-scrapper
+      FIREBASE_PROJECT_ID: vocard-6f1a5
       FIRESTORE_DATABASE: '(default)'
       MODE: ${{ inputs.mode || 'apply' }}
     steps:

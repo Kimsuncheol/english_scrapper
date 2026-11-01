@@ -54,11 +54,15 @@ class DailyConfig:
 
     def due_date(self, now: datetime):
         local = now.astimezone(ZoneInfo(self.timezone))
+        if local.weekday() >= 5:
+            return None
         return local.date() if (local.hour, local.minute) >= (self.hour, self.minute) else None
 
     def next_due(self, now: datetime):
         local = now.astimezone(ZoneInfo(self.timezone))
         candidate = datetime.combine(local.date(), time(self.hour, self.minute), ZoneInfo(self.timezone))
         if local >= candidate:
+            candidate += timedelta(days=1)
+        while candidate.weekday() >= 5:
             candidate += timedelta(days=1)
         return candidate.astimezone(timezone.utc)

@@ -57,6 +57,14 @@ def error(code):
     return HTTPError(BASE, code, TOKEN, {}, BytesIO(TOKEN.encode()))
 
 
+def test_weekend_wakeup_exits_without_triggering_or_polling():
+    api, opener, clock = client([status()])
+    run_daily(api, now=datetime(2026, 10, 23, 21, tzinfo=timezone.utc))
+    assert len(opener.calls) == 1
+    assert opener.calls[0][0].get_method() == "GET"
+    assert not clock.delays
+
+
 @pytest.mark.parametrize("code", [502, 503, 504])
 def test_cold_start_and_network_errors_are_retried_with_bounded_backoff(code):
     api, opener, clock = client([error(code), b"<html>Waking up</html>", URLError(TOKEN), status()])

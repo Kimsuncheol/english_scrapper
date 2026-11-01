@@ -101,12 +101,17 @@ which is documentation only; the app does not automatically load dotenv files):
 
 ### Firebase / Cloud Firestore setup
 
-This checkout is configured for Firebase project **`english-scrapper`**. The
-Standard `(default)` database is in **Seoul (`asia-northeast3`)**. The backend
-service account is `lesson-scraper@english-scrapper.iam.gserviceaccount.com`, with
-`roles/datastore.user`. Its local key is in the ignored `secrets/` directory;
-never commit or paste its contents into a chat. `.firebaserc` selects this project
-for Firebase CLI commands. Other global Google Cloud project settings are unchanged.
+This checkout is configured for Firebase project **Vocard (`vocard-6f1a5`)**.
+Its Standard `(default)` Firestore database is in **`nam5`**. Configure a backend
+service account with `roles/datastore.user` access to this project and store its
+local key at the ignored `secrets/vocard-service-account.json` path. Never commit
+or paste its contents into a chat. Update Render's `service-account.json` secret
+and GitHub's `FIREBASE_SERVICE_ACCOUNT_JSON` secret with Vocard credentials before
+deploying the switch. `.firebaserc` selects Vocard for Firebase CLI commands.
+Existing data in `english-scrapper` is not migrated by this configuration change.
+Vocard is a shared project: merge any necessary scraper indexes and rules into
+its existing configuration before deploying Firestore configuration; the rules
+in this checkout deny all client access and must not replace Vocard's app rules.
 
 Start the connected local test website with:
 
@@ -293,11 +298,14 @@ without a local timer. It sends no keep-alive pings between daily batches.
    Render service origin), and a repository secret `SCRAPE_TRIGGER_TOKEN` with
    the same token. The workflow receives no database password.
 4. Enable **Daily Chosun lesson scrape** under Actions. The workflow must be on the
-   default branch for scheduled execution. It uses `cron: "0 6 * * *"` with
+   default branch for scheduled execution. It uses `cron: "0 6 * * 1-5"` with
    `timezone: Asia/Seoul`; GitHub schedule expressions cannot read application
    environment variables. **If changing SCRAPE_TIMEZONE/HOUR/MINUTE, also align
    those two workflow schedule fields**, or configure another trusted external
    scheduler to call the trigger at/after the new due time.
+   Automatic scraping runs Monday–Friday only. The server rejects weekend daily
+   runs in the configured timezone, and next-run status skips to Monday. Hourly
+   archive preparation is also scheduled Monday–Friday in Asia/Seoul.
 5. Use **Run workflow** for an initial check after the due time. Inspect
    `/api/v1/jobs/status` and `/api/v1/articles` for persisted results. Confirm
    `enabled: true` and `in_process_enabled: false`. Before the
@@ -1677,8 +1685,8 @@ Populate or refresh the full catalog from a trusted local terminal, with the
 same server-side Firestore credentials used by the application:
 
 ```sh
-export FIREBASE_PROJECT_ID=english-scrapper
-export GOOGLE_APPLICATION_CREDENTIALS="$PWD/secrets/english-scrapper-service-account.json"
+export FIREBASE_PROJECT_ID=vocard-6f1a5
+export GOOGLE_APPLICATION_CREDENTIALS="$PWD/secrets/vocard-service-account.json"
 .venv/bin/python -m scripts.index_archive
 # After an interrupted initial import, skip pages already committed:
 .venv/bin/python -m scripts.index_archive --resume

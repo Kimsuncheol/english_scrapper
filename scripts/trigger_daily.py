@@ -73,6 +73,9 @@ def run_daily(client, *, now=None):
         if not status["enabled"]:
             raise RuntimeError("Daily scraping is disabled on the server; check SCRAPE_ENABLED")
         local = now.astimezone(ZoneInfo(status["timezone"]))
+        if local.weekday() >= 5:
+            print("Daily result: skipped (weekend)")
+            return
         if (local.hour, local.minute) < (status["hour"], status["minute"]):
             raise RuntimeError("External wake-up precedes the configured server schedule; align the workflow cron")
         run = status.get("last_run")

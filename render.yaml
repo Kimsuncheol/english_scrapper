@@ -10,7 +10,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: FIREBASE_PROJECT_ID
-        value: english-scrapper
+        value: vocard-6f1a5
       - key: FIRESTORE_DATABASE
         value: "(default)"
       - key: GOOGLE_APPLICATION_CREDENTIALS

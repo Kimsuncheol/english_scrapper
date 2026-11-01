@@ -2,7 +2,7 @@ name: Daily Chosun lesson scrape
 on:
   schedule:
     # Match the server's default 06:00 Asia/Seoul; align if env changes.
-    - cron: "0 6 * * *"
+    - cron: "0 6 * * 1-5"
       timezone: Asia/Seoul
   workflow_dispatch:
 permissions:

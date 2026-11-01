@@ -3,9 +3,9 @@ set -eu
 
 # Local development only. Render continues to use scripts/start.sh.
 cd "$(dirname "$0")/.."
-export FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-english-scrapper}"
+export FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-vocard-6f1a5}"
 export FIRESTORE_DATABASE="${FIRESTORE_DATABASE:-(default)}"
-export GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_APPLICATION_CREDENTIALS:-$PWD/secrets/english-scrapper-service-account.json}"
+export GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_APPLICATION_CREDENTIALS:-$PWD/secrets/vocard-service-account.json}"
 export ENABLE_TEST_SITE="${ENABLE_TEST_SITE:-true}"
 export SCRAPE_ENABLED="${SCRAPE_ENABLED:-false}"
 export SCRAPE_IN_PROCESS=false

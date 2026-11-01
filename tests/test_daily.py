@@ -155,6 +155,20 @@ def test_schedule_defaults_and_timezone_boundaries(monkeypatch):
     assert DailyConfig.from_env().due_date(datetime(2026, 10, 21, 12, 29, tzinfo=timezone.utc)) is None
 
 
+@pytest.mark.parametrize("instant", ["2026-10-23T15:00:00+00:00", "2026-10-24T21:00:00+00:00",
+                                     "2026-10-25T14:59:00+00:00"])
+def test_weekends_are_not_due_in_seoul(instant):
+    cfg = DailyConfig()
+    now = datetime.fromisoformat(instant)
+    assert cfg.due_date(now) is None
+    assert cfg.next_due(now) == datetime(2026, 10, 25, 21, tzinfo=timezone.utc)
+
+
+def test_friday_next_run_skips_to_monday():
+    cfg = DailyConfig()
+    assert cfg.next_due(datetime(2026, 10, 22, 21, tzinfo=timezone.utc)) == datetime(2026, 10, 25, 21, tzinfo=timezone.utc)
+
+
 @pytest.mark.parametrize("name,value", [("SCRAPE_ENABLED", "maybe"), ("SCRAPE_IN_PROCESS", "maybe"), ("SCRAPE_TIMEZONE", "invalid"), ("SCRAPE_HOUR", "24"), ("SCRAPE_MINUTE", "60"), ("FIRESTORE_DATABASE", "invalid/path"), ("SCRAPE_RETRY_ATTEMPTS", "20")])
 def test_invalid_schedule_config(monkeypatch, name, value):
     monkeypatch.setenv(name, value)
@@ -340,6 +354,9 @@ def test_disabled_or_early_run_has_no_database_or_network_work():
         assert await runner.run_due(NOW) == "disabled"
         runner = DailyRunner(config(), store, discover, AsyncMock())
         assert await runner.run_due(NOW.replace(hour=20, day=20)) == "not_due"
+        weekend = datetime(2026, 10, 24, tzinfo=timezone.utc)
+        assert runner.trigger(weekend) == "not_due"
+        assert await runner.run_due(weekend) == "not_due"
         discover.assert_not_awaited()
         assert not store.runs
     asyncio.run(run())
