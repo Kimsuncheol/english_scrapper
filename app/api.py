@@ -31,3 +31,19 @@ async def scrape(request: ScrapeRequest, response: Response, store=Depends(get_s
     saved, _ = await process_and_store(store, request.article_url)
     response.headers["Location"] = f"/api/v1/articles/{saved.id}"
     return saved.payload
+
+
+@router.post('/api/v1/lessons/fetch', response_model=ScrapeResponse)
+async def fetch_public_lesson(request: ScrapeRequest):
+    """Extract for a public reader without depending on persistent storage."""
+    from urllib.parse import urlsplit
+    from app.services.discovery import discover_articles
+    from app.services.scrape import scrape_article
+    from app.services.errors import ArticleFetchError
+    url = request.article_url
+    if urlsplit(str(url)).path.rstrip('/') == '/national/nie/english':
+        urls = await discover_articles()
+        if not urls:
+            raise ArticleFetchError('series_empty', 'No English lessons were found in the section.', 404)
+        url = urls[0]
+    return await scrape_article(url)
