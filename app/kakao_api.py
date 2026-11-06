@@ -105,7 +105,7 @@ async def restore_session(request: Request):
 async def disconnect_page():
     # POST via same-origin script; no state-changing GET or cross-site form allowed.
     nonce = secrets.token_urlsafe(24)
-    return HTMLResponse(f"<!doctype html><script nonce='{nonce}'>fetch('/api/v1/kakao/disconnect',{{method:'POST',headers:{{'X-Moatok-Disconnect':'1'}}}}).then(()=>{{if(opener)opener.postMessage({{type:'moatok-kakao-login',disconnected:true}},{json.dumps(config()[2])});window.close();}})</script>",
+    return HTMLResponse(f"<!doctype html><script nonce='{nonce}'>fetch('/api/v1/kakao/disconnect',{{method:'POST',headers:{{'X-Moatok-Disconnect':'1'}}}}).then(async r=>{{if(!r.ok || !(await r.json()).disconnected)throw new Error();if(opener)opener.postMessage({{type:'moatok-kakao-login',disconnected:true}},{json.dumps(config()[2])});window.close();}}).catch(()=>{{if(opener)opener.postMessage({{type:'moatok-kakao-login',error:'카카오 연결 해제에 실패했습니다. 다시 시도하세요.'}},{json.dumps(config()[2])});window.close();}})</script>",
         headers={'Cache-Control':'no-store','Content-Security-Policy':f"default-src 'none'; script-src 'nonce-{nonce}'; connect-src 'self'"})
 
 
