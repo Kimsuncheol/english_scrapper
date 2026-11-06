@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import os
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -60,6 +61,11 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 def create_app() -> FastAPI:
     application = FastAPI(title="Chosun English Lesson API", version="0.1.0", lifespan=lifespan)
+    application.add_middleware(CORSMiddleware,
+        allow_origins=[origin.strip() for origin in os.getenv('CORS_ALLOWED_ORIGINS',
+            'https://moatalk-e6fe1.web.app,https://moatalk-e6fe1.firebaseapp.com,http://localhost:5173').split(',') if origin.strip()],
+        allow_methods=['GET', 'POST'], allow_headers=['Content-Type'],
+        expose_headers=['Location'])
     application.include_router(router)
     application.include_router(daily_router)
     application.add_exception_handler(ArticleFetchError, article_fetch_error_handler)

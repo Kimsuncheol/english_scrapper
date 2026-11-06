@@ -6,7 +6,7 @@ import secrets
 from fastapi import APIRouter, Depends, Header, Query, Request
 
 from app.dependencies import get_store
-from app.schemas import ArticlePage, DailyRunResult, DailyStatusResponse, DailyTriggerResponse, ErrorResponse, SavedLessonResponse, SavedLessonSummary
+from app.schemas import ArticlePage, DailyRunResult, DailyStatusResponse, DailyTriggerResponse, ErrorResponse, SavedLessonResponse, SavedLessonSummary, SeriesCheckResponse
 from app.services.errors import ArticleFetchError
 from app.services.storage import STORAGE_ERRORS, StorageUnavailable
 
@@ -93,3 +93,9 @@ async def saved_article(article_id: str, store=Depends(get_store)):
 async def expression_catalog(store=Depends(get_store)):
     """All publisher-listed expression titles; transcription is not required."""
     return await store.expression_catalog()
+
+
+@router.post('/series/check', response_model=SeriesCheckResponse)
+async def check_series(request: Request, store=Depends(get_store)):
+    """Discover and process the latest lesson from the publisher's English series."""
+    return await request.app.state.series_checker.check(store)
