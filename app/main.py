@@ -66,6 +66,8 @@ def create_app() -> FastAPI:
             'https://moatalk-e6fe1.web.app,https://moatalk-e6fe1.firebaseapp.com,http://localhost:5173').split(',') if origin.strip()],
         allow_methods=['GET', 'POST'], allow_headers=['Content-Type'],
         expose_headers=['Location'])
+    from app.kakao_api import router as kakao_router
+    application.include_router(kakao_router)
     application.include_router(router)
     application.include_router(daily_router)
     application.add_exception_handler(ArticleFetchError, article_fetch_error_handler)
