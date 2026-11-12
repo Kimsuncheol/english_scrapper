@@ -221,12 +221,21 @@ def create_rapidocr_engine():
     return RapidOCREngine(OCRConfig.from_env())
 
 
-# Local adapters above remain available for historical normalization tests.
-# Production sends validated image bytes to Ollama Cloud, with no local models.
+# Production uses local Korean/English OCR. Ollama remains an explicit opt-in.
 from app.services.ollama_vision import OllamaVisionService
 from app.services.recognition import RecognizedLesson
 
-ocr_service = OllamaVisionService()
+
+def create_ocr_service():
+    backend = os.getenv("OCR_BACKEND", "rapidocr").strip().lower()
+    if backend == "rapidocr":
+        return OCRService()
+    if backend == "ollama":
+        return OllamaVisionService()
+    raise ValueError("OCR_BACKEND must be rapidocr or ollama")
+
+
+ocr_service = create_ocr_service()
 atexit.register(ocr_service.close)
 
 

@@ -14,7 +14,7 @@ from time import monotonic
 from app.services.discovery import stable_url
 from app.services.errors import ArticleFetchError
 from app.services.lesson_readiness import missing_sections
-from app.services.ollama_vision import OllamaVisionService
+from app.services.ocr import create_ocr_service
 from app.services.saved import process_and_store
 from app.services.scrape import scrape_article
 from app.services.storage import FirestoreStore, identifier
@@ -25,7 +25,7 @@ FATAL = {'ollama_rate_limited', 'ollama_access_denied', 'ollama_not_configured',
 async def complete_scrape(url):
     # Each concurrent job owns its recognizer. The public web service retains its
     # shared single-inference gate; only the hosted worker opts into concurrency.
-    recognizer = OllamaVisionService()
+    recognizer = create_ocr_service()
     try:
         result = await scrape_article(url, recognizer=recognizer.recognize)
     finally:

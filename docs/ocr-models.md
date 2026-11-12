@@ -1,9 +1,6 @@
-> Historical local OCR documentation. Production now uses [Ollama Cloud](ollama-vision.md).
-> These optional adapters are not installed or selected by the production requirements/Dockerfile.
-
 # RapidOCR models and deployment
 
-The default OCR adapter is **RapidOCR 3.10.0 + ONNX Runtime 1.31.0**, CPU only.
+The default OCR adapter is **RapidOCR 3.10.0 + ONNX Runtime 1.31.0**, CPU only (Intel macOS uses ONNX Runtime 1.23.2, which provides Intel wheels).
 It explicitly selects PP-OCRv5 mobile detection and Korean recognition; the
 Korean recognizer also supports English and numbers. It does not use RapidOCR's
 default Chinese recognizer or a GPU. Recognition quality has not been benchmarked

@@ -12,14 +12,14 @@ try {
     : "Saved lesson · Korean and English · Full OCR reading view";
   const refresh = document.createElement("button");
   refresh.type = "button";
-  refresh.textContent = "Read image again with Ollama";
+  refresh.textContent = "Read image again";
   const note = document.createElement("p");
   note.className = "muted";
-  note.textContent = "This makes a new Ollama request. The previous saved result is kept as a Firestore revision.";
+  note.textContent = "This reads the original image again. The previous saved result is kept as a Firestore revision.";
   refresh.addEventListener("click", async () => {
     if (refresh.disabled) return;
     refresh.disabled = true;
-    lessonStatus.textContent = "Ollama is reading the original lesson image…";
+    lessonStatus.textContent = "Reading the original lesson image…";
     try {
       const response = await fetch(`/_dev/test-site/lessons/${encodeURIComponent(lesson.id)}/transcribe`, {method: "POST"});
       const result = await response.json();

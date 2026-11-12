@@ -2,11 +2,10 @@
 
 FastAPI service that safely fetches Chosun.com articles and extracts article
 metadata and lesson-image URLs, then downloads and validates the selected image
-in memory. Ollama Cloud’s Gemma 4 31B vision model reads Korean and English
-directly from the image and returns a validated text transcription. AI-assigned
-lesson fields reference that transcription; absent or ambiguous fields stay
-unassigned. Historical OCR results remain readable. No request files are written
-at runtime.
+in memory. RapidOCR reads Korean and English locally using verified ONNX models.
+Lesson fields are classified from recognized text and geometry; absent or
+ambiguous fields stay unassigned. Historical results remain readable. Request
+images stay in memory.
 Manual and scheduled scraping use the same processing/persistence service.
 Results are saved in Cloud Firestore and can be retrieved through the API.
 
@@ -15,7 +14,11 @@ then recognizes its pixels with OCR. It does **not** extract the graphic as
 native/selectable text from the article HTML. Page metadata comes from HTML/page
 data, while lesson text is an OCR estimate that can contain errors.
 
-AI setup: [Ollama Cloud image transcription](docs/ollama-vision.md).
+Image reading defaults to **local RapidOCR** with Korean/English models, without
+an Ollama account or API key. Docker downloads and verifies models during build;
+local setup: [RapidOCR installation](docs/ocr-models.md). `OCR_BACKEND=ollama`
+explicitly enables the optional [legacy cloud adapter](docs/ollama-vision.md).
+Existing saved lessons are preserved; new unsaved lessons use the selected engine.
 
 API reference: [API documentation](docs/API.md), [OpenAPI specification](docs/openapi.json),
 and [synthetic response example](docs/examples/scrape-response.json).
@@ -123,7 +126,7 @@ sh scripts/start-local.sh
 This local-only script sets the project, credential path, and development route
 flag; scheduling remains off. It uses installed `.ocr-models` if present and
 accepts environment overrides (`LOCAL_PORT`, `FIREBASE_PROJECT_ID`,
-`GOOGLE_APPLICATION_CREDENTIALS`, `OLLAMA_API_KEY_FILE`, `ENABLE_TEST_SITE`).
+`GOOGLE_APPLICATION_CREDENTIALS`, `OCR_MODEL_DIR`, `ENABLE_TEST_SITE`).
 Render uses its separate production start script. For Render, mount the same
 service-account key privately as `/etc/secrets/service-account.json`; the Blueprint
 already specifies the project ID and credential path. The secret itself is not
@@ -443,7 +446,7 @@ To run the test-site URL form with the emulator, leave it running and start:
 ```sh
 ENABLE_TEST_SITE=true SCRAPE_ENABLED=false \
 FIREBASE_PROJECT_ID=demo-english-scrapper FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 \
-OLLAMA_API_KEY_FILE="$PWD/secrets/ollama-api-key" \
+OCR_MODEL_DIR="$PWD/.ocr-models/rapidocr" \
   .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
@@ -459,17 +462,16 @@ and restart recovery without sleeping or calling Render.
 
 ## Run locally
 
-Use Python 3.12. The default image reader is Ollama Cloud (`gemma4:31b`). No local
-OCR engine, Ollama installation, GPU, or model files are needed. Configure the
-server-side Ollama key privately using `OLLAMA_API_KEY` or `OLLAMA_API_KEY_FILE`.
-See [Ollama setup and deployment](docs/ollama-vision.md) for limits and credentials.
+Use Python 3.12 and install the local Korean/English models once. See
+[OCR setup and deployment](docs/ocr-models.md) for limits and model checks.
 
 Then, from the repository root:
 
 ```sh
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-export OLLAMA_API_KEY_FILE="$PWD/secrets/ollama-api-key"
+.venv/bin/python scripts/prepare_ocr_models.py
+export OCR_MODEL_DIR="$PWD/.ocr-models/rapidocr"
 # Use a separate development Firebase project and server credentials.
 export FIREBASE_PROJECT_ID='your-dev-project-id'
 export GOOGLE_APPLICATION_CREDENTIALS='/absolute/path/to/service-account.json'
@@ -534,9 +536,8 @@ and calls `POST /api/v1/scrape` on the same server. It displays the expression
 when reliably classified, processing status, and the full JSON response (including
 raw OCR), or the API error. Submitting this form performs real external fetching
 and OCR; the four fixture links remain offline. Configure `FIREBASE_PROJECT_ID` and server credentials for
-Cloud Firestore and configure the Ollama API key as described
-above before submitting. For a local secret file, set
-`OLLAMA_API_KEY_FILE="$PWD/secrets/ollama-api-key"` when starting the server. Duplicate URLs use
+Cloud Firestore and provision the local models as described above before
+submitting. Duplicate URLs use
 the existing saved result. The form does not enable local URL fetching or bypass
 API host validation. Keep `ENABLE_TEST_SITE=false` in production.
 
@@ -754,7 +755,7 @@ a valid article image or OG fallback.
 | --- | --- |
 | Browse/curl the fixture HTML pages | The pure article parser displays metadata and selected-image information. OCR is not invoked. |
 | Run `tests/test_local_fixture_e2e.py` | Real fixture HTML/PNG routes and image validation run. A mocked OCR service receives the validated PNG bytes and returns the fixed original text/boxes in `tests/fixtures/lesson_ocr_original_six_sections.json`. Results use an in-memory persistence double. |
-| Submit an approved real article to the ordinary `/api/v1/scrape` endpoint | Ollama reads the Korean/English image text on the downloaded image; configured language files and configured Firestore credentials are required. |
+| Submit an approved real article to the ordinary `/api/v1/scrape` endpoint | RapidOCR reads the Korean/English text on the downloaded image; configured language files and configured Firestore credentials are required. |
 
 Mocked OCR has deterministic text, confidence and bounding boxes, even if the
 fixture image's visible words differ. It tests pipeline wiring, reading order and
@@ -1103,7 +1104,8 @@ also pass `ArticleFetchConfig` / `ImageDownloadConfig` directly to those service
 | `IMAGE_MAX_REDIRECTS` | 3 |
 | `OCR_MAX_BYTES` | 10485760 (10 MiB) |
 | `OCR_MAX_PIXELS` | 4000000 |
-| `OLLAMA_TIMEOUT_SECONDS` | 60 |
+| `OCR_BACKEND` | rapidocr |
+| `OCR_TIMEOUT_MS` | 30000 |
 | `OCR_MIN_CONFIDENCE` | 0.5 |
 
 The overall deadline is cooperative: a native OCR call or CPU worker cannot be
@@ -1224,7 +1226,7 @@ Tests for this case use local/mocked fixtures rather than repeatedly calling
 Chosun. The one live verification does not prove a Render daily run has occurred.
 
 That historical verification used Tesseract fast language files. The current engine instead sends the image to
-[Ollama Cloud](docs/ollama-vision.md); Docker contains no local model weights. Actual unattended runs still need the Firebase project/credentials, enabled
+[RapidOCR](docs/ocr-models.md); Docker bundles verified local model weights. Actual unattended runs still need the Firebase project/credentials, enabled
 schedule, trigger secret and external scheduler described above.
 
 ## Image selection
@@ -1401,42 +1403,22 @@ Image errors use the same `error` envelope:
 | 502 | `image_http_error`, `image_network_error`, `image_redirect_error`, `image_too_large`, `image_encoding_error` |
 | 504 | `image_timeout` |
 
-## Ollama vision transcription
+## Image recognition
 
-The service now sends the validated lesson-image bytes to **Ollama Cloud** using
-**Gemma 4 31B** (`OLLAMA_MODEL=gemma4:31b`). No local OCR library, inference runtime,
-model download, or GPU is required. Manual scrapes, the newest-expression check,
-and scheduled scraping share this processing path.
+Production uses local [RapidOCR Korean/English models](docs/ocr-models.md).
+New results use `ocr.engine: "rapidocr-onnx"` with measured regions and confidence.
+The optional [Ollama backend](docs/ollama-vision.md) requires `OCR_BACKEND=ollama`.
 
-The model transcribes visible Korean/English text and identifies the optional
-lesson sections. It is instructed not to translate, invent missing words, or
-follow instructions in the image. Cloud JSON output is independently validated;
-field text must be present in the raw transcript. Unreadable spans stay marked.
-This is AI transcription and still requires review; it is not a guarantee of
-character-perfect recognition.
-
-New results use `ocr.engine: "ollama/gemma4:31b"` and preserve `ocr.lines` and
-`ocr.raw_text`. The AI provider does not return measured OCR boxes or calibrated
-confidence: `ocr.regions` is empty, mean confidence is null, and field bounding
-boxes/confidences are null. Field `line_indices` reference the transcript.
-Historical results retain their original regions and engine labels.
-
-Existing URLs continue to reuse saved text without a new API call. To upgrade an
-older result, open its lesson page and choose **Read image again with Ollama**.
-That explicit action makes a new request and atomically preserves the previous
-Firestore payload in the article's `revisions` subcollection. It is available only
-when the development test site is explicitly enabled; page views never trigger
-reprocessing. Failed transcriptions preserve the old saved result.
-
-Full configuration, API errors, timeouts, account quotas, safe secret handling,
-and mocked/live checks are described in [Ollama image transcription](docs/ollama-vision.md).
-The previous [local OCR comparison](docs/ocr-models.md) is historical only.
+Existing URLs reuse saved text. Choose **Read image again** on a saved lesson
+when the development test site is enabled to explicitly reprocess it with the
+selected backend. The previous payload is preserved in Firestore revisions;
+failed recognition leaves the saved result intact.
 
 ## Render Free deployment
 
 Deploy this repository as a **Docker Web Service**, not Render's native Python
 runtime. Docker installs the pinned web/image/Firebase dependencies; inference
-runs remotely on Ollama Cloud. `render.yaml` describes this same Docker
+runs locally through RapidOCR and ONNX Runtime. `render.yaml` describes this same Docker
 approach with `plan: free`, `/health`, and conservative environment settings. It
 creates one web service with no disk, provisioned database, separate worker, or
 GPU. Manual/scheduled persistence requires external Firestore credentials. The
@@ -1446,21 +1428,20 @@ optional daily scheduler is disabled in the Blueprint until configured.
 
 The builder and runtime both use **Python 3.12 on Debian Bookworm** via
 `python:3.12-slim-bookworm`. The minor-series image tag intentionally receives
-Python/security patch updates; it is not an immutable image digest. All Python
-runtime dependencies, including transitive dependencies, are pinned exactly in
+Python/security patch updates; it is not an immutable image digest. Direct Python
+runtime dependencies are pinned in
 `requirements.txt` (including `httpx==0.28.1` and `pillow==13.0.0`). Development
 dependencies remain separate. Debian packages track Bookworm security updates;
 the build is not bit-for-bit reproducible against a frozen apt snapshot.
 
 The multi-stage `Dockerfile` builds pinned Python wheels, installs them in a slim
 runtime image, and runs as an unprivileged user with one Uvicorn worker. It does
-not install RapidOCR, ONNX Runtime, Tesseract, OpenCV, an Ollama daemon, local model
-weights, or extra OCR system packages. The image builds without any AI key.
+install RapidOCR, ONNX Runtime, headless OpenCV, verified Korean/English model
+weights, and libgomp1. The image builds without any AI key.
 
-No image or model is downloaded during service startup or from a health request.
-Application requests fetch the submitted article and selected lesson image,
-then send validated bytes to Ollama Cloud. Configure `OLLAMA_API_KEY` privately
-in Render Environment, or set `OLLAMA_API_KEY_FILE` to a mounted secret file.
+Models are downloaded and checksum-verified during the Docker build. Neither
+startup nor health requests download models. Application requests fetch the
+article and selected lesson image, then recognize validated pixels locally.
 Request HTML and image buffers stay in memory and need no persistent filesystem.
 Manual and daily OCR/results are stored in Firestore. Redeploys/restarts can
 discard writable request files safely; Firestore remains the source of saved records.
@@ -1544,10 +1525,9 @@ triggers also require `SCRAPE_TRIGGER_TOKEN` as described above.
 | `FIRESTORE_DATABASE` | `(default)` | Optional Render Environment override |
 | `GOOGLE_APPLICATION_CREDENTIALS` | `/etc/secrets/service-account.json` | Path to privately mounted Render secret file |
 | `PORT` | Render-selected port | Render automatically; leave unset |
-| `OLLAMA_API_KEY` | Private value, never committed | Set in Render Environment |
-| `OLLAMA_MODEL` | `gemma4:31b` | Application default and Blueprint |
-| `OLLAMA_TIMEOUT_SECONDS` | `60` | Application default and Blueprint |
-| `OMP_THREAD_LIMIT` | `1` | Docker image and Blueprint |
+| `OCR_BACKEND` | `rapidocr` | Application default and Blueprint |
+| `OCR_MODEL_DIR` | `/app/.ocr-models/rapidocr` | Docker image and Blueprint |
+| `OCR_TIMEOUT_MS` | `30000` | Application default and Blueprint |
 | `SCRAPE_MAX_CONCURRENT_REQUESTS` | `1` | Application default and Blueprint |
 | `SCRAPE_TIMEOUT_SECONDS` | `90` | Application default and Blueprint |
 | `OCR_MAX_PIXELS` | `4000000` | Application default and Blueprint |
@@ -1603,10 +1583,11 @@ and remaining pipeline minutes before repeated rebuilds. This repository does
 not request the paid Performance pipeline tier.
 [Render build pipeline](https://render.com/docs/build-pipeline).
 
-If building fails, inspect Python wheel installation. No model or credential is
-required to build or serve health. At runtime, `ollama_not_configured` requires
-setting the private key; provider access, quota and timeout errors are described
-in [Ollama setup](docs/ollama-vision.md); `scrape_busy`/`ocr_busy` can be retried after active work completes.
+If building fails, inspect Python wheel installation and the checksum-verified
+model download. No API credential is required to build or serve health.
+`ocr_unavailable` means the local dependencies/models could not initialize;
+`ocr_recognition_failed` indicates a recognition deadline or inference failure.
+`scrape_busy`/`ocr_busy` can be retried after active work completes.
 Out-of-memory restarts or repeated deadlines require smaller inputs/lower limits
 or separately hosted OCR; adding workers makes the Free memory problem worse.
 
@@ -1631,7 +1612,7 @@ container build and a real lesson scrape before treating the service as verified
 Prepared locally:
 
 - Docker build with pinned Python runtime packages, native OCR system libraries,
-  and remote Ollama vision; no model downloads or persistent
+  and local RapidOCR; build-time model downloads and no persistent
   request files.
 - Explicit Free Blueprint, `$PORT` binding on `0.0.0.0`, one worker, one default
   active scrape, bounded network/image/OCR resources, and lightweight `/health`.

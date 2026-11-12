@@ -253,3 +253,20 @@ def test_setup_rejects_tampered_download_without_publishing_it(monkeypatch, tmp_
 def test_environment_model_directory(monkeypatch):
     monkeypatch.setenv('OCR_MODEL_DIR', '/app/models')
     assert OCRConfig.from_env().model_dir == '/app/models'
+
+
+def test_production_defaults_to_local_ocr(monkeypatch):
+    from app.services.ocr import create_ocr_service
+    monkeypatch.delenv("OCR_BACKEND", raising=False)
+    monkeypatch.setenv("OLLAMA_API_KEY", "unused-legacy-key")
+    assert isinstance(create_ocr_service(), OCRService)
+
+
+def test_cloud_backend_requires_explicit_selection(monkeypatch):
+    from app.services.ocr import create_ocr_service
+    from app.services.ollama_vision import OllamaVisionService
+    monkeypatch.setenv("OCR_BACKEND", "ollama")
+    assert isinstance(create_ocr_service(), OllamaVisionService)
+    monkeypatch.setenv("OCR_BACKEND", "typo")
+    with pytest.raises(ValueError, match="OCR_BACKEND"):
+        create_ocr_service()

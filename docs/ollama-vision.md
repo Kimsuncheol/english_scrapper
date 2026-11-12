@@ -1,3 +1,6 @@
+> Optional legacy backend. Production defaults to [local RapidOCR](ocr-models.md).
+> Set `OCR_BACKEND=ollama` explicitly to use this backend.
+
 # Ollama Cloud image transcription
 
 The production pipeline is now:

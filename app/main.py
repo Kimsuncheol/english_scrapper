@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
     ArticleFetchConfig.from_env()
     ImageDownloadConfig.from_env()
     ScrapeConfig.from_env()
-    # Ollama inference is request-scoped; no local model is loaded.
+    # Models are loaded lazily on the first recognition request.
     # /health must not wait for OCR or perform any network/model work.
     daily = DailyRunner(DailyConfig.from_env())
     app.state.daily_runner = daily
