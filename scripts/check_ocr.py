@@ -36,9 +36,10 @@ def main():
                 f'regions={len(result.regions)}, status={result.status}')
             if not result.regions:
                 raise RuntimeError('Smoke image produced no readable regions')
-        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        peak = max(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                   resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
         divisor = 1024**2 if sys.platform == 'darwin' else 1024
-        print(f'Peak RSS: {peak/divisor:.1f} MiB (local platform; not a Render measurement)')
+        print(f'Peak RSS per process: {peak/divisor:.1f} MiB (parent/child maximum; not combined memory)')
     finally:
         service.close()
 

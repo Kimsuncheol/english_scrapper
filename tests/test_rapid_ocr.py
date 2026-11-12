@@ -78,7 +78,7 @@ def test_inconsistent_result_is_clean_error():
 
 def test_default_service_initializes_rapid_engine_once(monkeypatch):
     api = fake_api(monkeypatch)
-    service = OCRService()
+    service = OCRService(lambda: RapidOCREngine(OCRConfig()))
     for _ in range(2):
         result = asyncio.run(service.recognize(png()))
         assert result.engine == "rapidocr-onnx"
@@ -201,7 +201,7 @@ def test_manual_endpoint_persists_rapidocr_output_idempotently(monkeypatch, pers
         scores.append(sum(region['confidence'] for region in regions)/len(regions))
         boxes.append([[x,y], [right,y], [right,y+h], [x,y+h]])
     api.return_value = SimpleNamespace(txts=texts, scores=scores, boxes=boxes)
-    service = OCRService()
+    service = OCRService(lambda: RapidOCREngine(OCRConfig()))
     html = '<script>Fusion.globalContent={"content_elements":[{"type":"image","url":"https://images.chosun.com/lesson.png","width":1000,"height":1500}]};</script>'
     monkeypatch.setattr(scrape, 'fetch_article', AsyncMock(return_value=FetchedArticle(
         url='https://www.chosun.com/lesson/rapid/', html=html, title='English lesson')))

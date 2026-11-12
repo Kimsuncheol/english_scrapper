@@ -16,9 +16,9 @@ services:
       - key: GOOGLE_APPLICATION_CREDENTIALS
         value: /etc/secrets/service-account.json
       - key: OCR_BACKEND
-        value: rapidocr
+        value: paddleocr
       - key: OCR_MODEL_DIR
-        value: /app/.ocr-models/rapidocr
+        value: /app/.ocr-models/paddleocr
       - key: OCR_TIMEOUT_MS
         value: "30000"
       - key: SCRAPE_MAX_CONCURRENT_REQUESTS

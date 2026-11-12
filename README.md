@@ -2,7 +2,7 @@
 
 FastAPI service that safely fetches Chosun.com articles and extracts article
 metadata and lesson-image URLs, then downloads and validates the selected image
-in memory. RapidOCR reads Korean and English locally using verified ONNX models.
+in memory. PaddleOCR reads Korean and English locally using verified native Paddle models.
 Lesson fields are classified from recognized text and geometry; absent or
 ambiguous fields stay unassigned. Historical results remain readable. Request
 images stay in memory.
@@ -14,9 +14,9 @@ then recognizes its pixels with OCR. It does **not** extract the graphic as
 native/selectable text from the article HTML. Page metadata comes from HTML/page
 data, while lesson text is an OCR estimate that can contain errors.
 
-Image reading defaults to **local RapidOCR** with Korean/English models, without
+Image reading defaults to **local PaddleOCR** with Korean/English models, without
 an Ollama account or API key. Docker downloads and verifies models during build;
-local setup: [RapidOCR installation](docs/ocr-models.md). `OCR_BACKEND=ollama`
+local setup: [PaddleOCR installation](docs/ocr-models.md). `OCR_BACKEND=ollama`
 explicitly enables the optional [legacy cloud adapter](docs/ollama-vision.md).
 Existing saved lessons are preserved; new unsaved lessons use the selected engine.
 
@@ -446,7 +446,7 @@ To run the test-site URL form with the emulator, leave it running and start:
 ```sh
 ENABLE_TEST_SITE=true SCRAPE_ENABLED=false \
 FIREBASE_PROJECT_ID=demo-english-scrapper FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 \
-OCR_MODEL_DIR="$PWD/.ocr-models/rapidocr" \
+OCR_MODEL_DIR="$PWD/.ocr-models/paddleocr" \
   .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
@@ -470,8 +470,8 @@ Then, from the repository root:
 ```sh
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python scripts/prepare_ocr_models.py
-export OCR_MODEL_DIR="$PWD/.ocr-models/rapidocr"
+.venv/bin/python scripts/prepare_paddleocr_models.py
+export OCR_MODEL_DIR="$PWD/.ocr-models/paddleocr"
 # Use a separate development Firebase project and server credentials.
 export FIREBASE_PROJECT_ID='your-dev-project-id'
 export GOOGLE_APPLICATION_CREDENTIALS='/absolute/path/to/service-account.json'
@@ -755,7 +755,7 @@ a valid article image or OG fallback.
 | --- | --- |
 | Browse/curl the fixture HTML pages | The pure article parser displays metadata and selected-image information. OCR is not invoked. |
 | Run `tests/test_local_fixture_e2e.py` | Real fixture HTML/PNG routes and image validation run. A mocked OCR service receives the validated PNG bytes and returns the fixed original text/boxes in `tests/fixtures/lesson_ocr_original_six_sections.json`. Results use an in-memory persistence double. |
-| Submit an approved real article to the ordinary `/api/v1/scrape` endpoint | RapidOCR reads the Korean/English text on the downloaded image; configured language files and configured Firestore credentials are required. |
+| Submit an approved real article to the ordinary `/api/v1/scrape` endpoint | PaddleOCR reads the Korean/English text on the downloaded image; configured language files and configured Firestore credentials are required. |
 
 Mocked OCR has deterministic text, confidence and bounding boxes, even if the
 fixture image's visible words differ. It tests pipeline wiring, reading order and
@@ -1104,7 +1104,7 @@ also pass `ArticleFetchConfig` / `ImageDownloadConfig` directly to those service
 | `IMAGE_MAX_REDIRECTS` | 3 |
 | `OCR_MAX_BYTES` | 10485760 (10 MiB) |
 | `OCR_MAX_PIXELS` | 4000000 |
-| `OCR_BACKEND` | rapidocr |
+| `OCR_BACKEND` | paddleocr |
 | `OCR_TIMEOUT_MS` | 30000 |
 | `OCR_MIN_CONFIDENCE` | 0.5 |
 
@@ -1226,7 +1226,7 @@ Tests for this case use local/mocked fixtures rather than repeatedly calling
 Chosun. The one live verification does not prove a Render daily run has occurred.
 
 That historical verification used Tesseract fast language files. The current engine instead sends the image to
-[RapidOCR](docs/ocr-models.md); Docker bundles verified local model weights. Actual unattended runs still need the Firebase project/credentials, enabled
+[PaddleOCR](docs/ocr-models.md); Docker bundles verified local model weights. Actual unattended runs still need the Firebase project/credentials, enabled
 schedule, trigger secret and external scheduler described above.
 
 ## Image selection
@@ -1405,8 +1405,8 @@ Image errors use the same `error` envelope:
 
 ## Image recognition
 
-Production uses local [RapidOCR Korean/English models](docs/ocr-models.md).
-New results use `ocr.engine: "rapidocr-onnx"` with measured regions and confidence.
+Production uses local [PaddleOCR Korean/English models](docs/ocr-models.md).
+New results use `ocr.engine: "paddleocr"` with measured regions and confidence.
 The optional [Ollama backend](docs/ollama-vision.md) requires `OCR_BACKEND=ollama`.
 
 Existing URLs reuse saved text. Choose **Read image again** on a saved lesson
@@ -1418,7 +1418,7 @@ failed recognition leaves the saved result intact.
 
 Deploy this repository as a **Docker Web Service**, not Render's native Python
 runtime. Docker installs the pinned web/image/Firebase dependencies; inference
-runs locally through RapidOCR and ONNX Runtime. `render.yaml` describes this same Docker
+runs locally through PaddleOCR and PaddlePaddle. `render.yaml` describes this same Docker
 approach with `plan: free`, `/health`, and conservative environment settings. It
 creates one web service with no disk, provisioned database, separate worker, or
 GPU. Manual/scheduled persistence requires external Firestore credentials. The
@@ -1436,7 +1436,7 @@ the build is not bit-for-bit reproducible against a frozen apt snapshot.
 
 The multi-stage `Dockerfile` builds pinned Python wheels, installs them in a slim
 runtime image, and runs as an unprivileged user with one Uvicorn worker. It does
-install RapidOCR, ONNX Runtime, headless OpenCV, verified Korean/English model
+install PaddleOCR, PaddlePaddle, OpenCV, verified Korean/English model
 weights, and libgomp1. The image builds without any AI key.
 
 Models are downloaded and checksum-verified during the Docker build. Neither
@@ -1525,8 +1525,8 @@ triggers also require `SCRAPE_TRIGGER_TOKEN` as described above.
 | `FIRESTORE_DATABASE` | `(default)` | Optional Render Environment override |
 | `GOOGLE_APPLICATION_CREDENTIALS` | `/etc/secrets/service-account.json` | Path to privately mounted Render secret file |
 | `PORT` | Render-selected port | Render automatically; leave unset |
-| `OCR_BACKEND` | `rapidocr` | Application default and Blueprint |
-| `OCR_MODEL_DIR` | `/app/.ocr-models/rapidocr` | Docker image and Blueprint |
+| `OCR_BACKEND` | `paddleocr` | Application default and Blueprint |
+| `OCR_MODEL_DIR` | `/app/.ocr-models/paddleocr` | Docker image and Blueprint |
 | `OCR_TIMEOUT_MS` | `30000` | Application default and Blueprint |
 | `SCRAPE_MAX_CONCURRENT_REQUESTS` | `1` | Application default and Blueprint |
 | `SCRAPE_TIMEOUT_SECONDS` | `90` | Application default and Blueprint |
@@ -1612,7 +1612,7 @@ container build and a real lesson scrape before treating the service as verified
 Prepared locally:
 
 - Docker build with pinned Python runtime packages, native OCR system libraries,
-  and local RapidOCR; build-time model downloads and no persistent
+  and local PaddleOCR; build-time model downloads and no persistent
   request files.
 - Explicit Free Blueprint, `$PORT` binding on `0.0.0.0`, one worker, one default
   active scrape, bounded network/image/OCR resources, and lightweight `/health`.

@@ -1,4 +1,4 @@
-> Optional legacy backend. Production defaults to [local RapidOCR](ocr-models.md).
+> Optional legacy backend. Production defaults to [local PaddleOCR](ocr-models.md).
 > Set `OCR_BACKEND=ollama` explicitly to use this backend.
 
 # Ollama Cloud image transcription
@@ -13,7 +13,7 @@ The production pipeline is now:
 5. Validate the generated transcription, organize the lesson, and save it in
    Cloud Firestore. The test website reads the saved result.
 
-The app does not run RapidOCR, Tesseract, ONNX Runtime, or a local Ollama daemon
+The app does not run PaddleOCR, Tesseract, ONNX Runtime, or a local Ollama daemon
 in production. Inference runs remotely. It requires no GPU, multi-gigabyte model
 downloads, or persistent local filesystem on Render Free. The previous local OCR
 adapters remain as optional compatibility/test code, outside the deployed

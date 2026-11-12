@@ -36,7 +36,7 @@ except (ImportError, OSError, RuntimeError, ValueError) as exc:
 @dataclass(frozen=True)
 class OCRConfig:
     tessdata_dir: str | None = None
-    model_dir: str = ".ocr-models/rapidocr"
+    model_dir: str = ".ocr-models/paddleocr"
     min_confidence: float = 0.5
     max_pixels: int = 4_000_000
     max_bytes: int = 10 * 1024 * 1024
@@ -52,7 +52,7 @@ class OCRConfig:
     def from_env(cls):
         return cls(
             tessdata_dir=os.getenv("TESSDATA_PREFIX"),
-            model_dir=os.getenv("OCR_MODEL_DIR", ".ocr-models/rapidocr"),
+            model_dir=os.getenv("OCR_MODEL_DIR", ".ocr-models/paddleocr"),
             min_confidence=float(os.getenv("OCR_MIN_CONFIDENCE", "0.5")),
             max_pixels=int(os.getenv("OCR_MAX_PIXELS", "4000000")),
             max_bytes=int(os.getenv("OCR_MAX_BYTES", str(10 * 1024 * 1024))),
@@ -169,7 +169,7 @@ class TesseractEngine:
 
 class OCRService:
     def __init__(self, factory: Callable[[], OCREngine] | None = None):
-        self.factory = factory or create_rapidocr_engine
+        self.factory = factory or create_paddleocr_engine
         self._lock = Lock()
         self._initialized = False
         self._engine = None
@@ -215,10 +215,9 @@ class OCRService:
             self._initialized = True
 
 
-def create_rapidocr_engine():
-    # Heavy imports and model loading remain off the ASGI/health path.
-    from app.services.rapid_ocr import RapidOCREngine
-    return RapidOCREngine(OCRConfig.from_env())
+def create_paddleocr_engine():
+    from app.services.paddle_ocr import PaddleOCREngine
+    return PaddleOCREngine(OCRConfig.from_env())
 
 
 # Production uses local Korean/English OCR. Ollama remains an explicit opt-in.
@@ -227,12 +226,12 @@ from app.services.recognition import RecognizedLesson
 
 
 def create_ocr_service():
-    backend = os.getenv("OCR_BACKEND", "rapidocr").strip().lower()
-    if backend == "rapidocr":
+    backend = os.getenv("OCR_BACKEND", "paddleocr").strip().lower()
+    if backend == "paddleocr":
         return OCRService()
     if backend == "ollama":
         return OllamaVisionService()
-    raise ValueError("OCR_BACKEND must be rapidocr or ollama")
+    raise ValueError("OCR_BACKEND must be paddleocr or ollama")
 
 
 ocr_service = create_ocr_service()

@@ -126,7 +126,7 @@ A complete, original synthetic response is available in
 [examples/scrape-response.json](examples/scrape-response.json). It includes all
 six labeled lesson sections and bounding boxes. Its URLs, timing and image
 metadata are illustrative; `engine: "mock"` identifies fixture data, not a real
-publisher OCR result. New production recognition uses `engine: "rapidocr-onnx"`; historical results retain their engine labels.
+publisher OCR result. New production recognition uses `engine: "paddleocr"`; historical results retain their engine labels.
 
 ### Idempotency and concurrent requests
 
@@ -191,10 +191,10 @@ article URL, rather than treating `published_at` as the lesson day.
 | `raw_text` | string | Combined image transcription with line breaks; not publisher-native text |
 | `lines` | string array | AI transcript in reading order; field line indices reference this array |
 | `korean_text`, `english_text` | string or null | Optional language-specific outputs; current normalizer leaves these null |
-| `engine` | string | `rapidocr-onnx` by default; historical engines are preserved |
+| `engine` | string | `paddleocr` by default; historical engines are preserved |
 | `status` | `ok`, `low_confidence`, `empty` | Recognition outcome |
 | `mean_confidence` | number 0–1 or null | Mean recognized region confidence; null when empty |
-| `regions` | array of `OCRRegion` | Measured OCR regions for RapidOCR and historical local engines; empty for optional Ollama vision |
+| `regions` | array of `OCRRegion` | Measured OCR regions for PaddleOCR and historical local engines; empty for optional Ollama vision |
 | `warnings` | string array | Recognition limitations requiring review |
 
 Each `OCRRegion` contains `text`, `confidence` (0–1), `bounding_box` and
@@ -467,7 +467,7 @@ These are default server settings, not request-body options:
 | `IMAGE_MAX_REDIRECTS` | 3 | Image redirect cap |
 | `OCR_MAX_BYTES` | 10485760 | OCR input byte cap |
 | `OCR_MAX_PIXELS` | 4000000 | OCR input pixel cap; stricter than image decoding |
-| `OCR_BACKEND` | rapidocr | Local Korean/English recognition; optional ollama backend |
+| `OCR_BACKEND` | paddleocr | Local Korean/English recognition; optional ollama backend |
 | `OCR_TIMEOUT_MS` | 30000 | Local inference deadline |
 | `OCR_MIN_CONFIDENCE` | 0.5 | Low-confidence threshold |
 | `SCRAPE_TIMEOUT_SECONDS` | 90 | Pipeline deadline; excludes some persistence/HTTP overhead |
