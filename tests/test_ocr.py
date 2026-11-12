@@ -99,7 +99,7 @@ def test_engine_keeps_api_and_clears_each_request(monkeypatch):
         assert result.raw_text == "안녕 Hello"
     factory.assert_called_once()
     assert api.SetImage.call_count == 2
-    api.Recognize.assert_called_with(timeout=30_000)
+    api.Recognize.assert_called_with(timeout=60_000)
     assert api.Clear.call_count == 2
     assert api.ClearAdaptiveClassifier.call_count == 2
     engine.close()

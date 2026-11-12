@@ -1,4 +1,4 @@
-"""Native PaddleOCR contract, image limits and isolated-worker lifecycle tests."""
+"""PaddleOCR contract, image limits and isolated-worker lifecycle tests."""
 
 import asyncio
 from dataclasses import asdict
@@ -83,7 +83,9 @@ def test_explicit_cpu_korean_models_and_disabled_optional_modules(monkeypatch):
     monkeypatch.setitem(sys.modules, "paddleocr", SimpleNamespace(PaddleOCR=constructor))
     paddle_ocr.create_paddleocr_api(OCRConfig())
     params = constructor.call_args.kwargs
-    assert params["device"] == "cpu" and params["engine"] == "paddle_static"
+    assert params["device"] == "cpu" and params["engine"] == "onnxruntime"
+    assert params["engine_config"]["enable_cpu_mem_arena"] is False
+    assert params["engine_config"]["providers"] == ["CPUExecutionProvider"]
     assert params["cpu_threads"] == 1 and params["enable_mkldnn"] is False
     assert params["text_recognition_model_name"] == "korean_PP-OCRv5_mobile_rec"
     assert params["text_detection_model_dir"] == "det"
@@ -185,7 +187,7 @@ def test_setup_extracts_only_verified_regular_files_and_reuses_cache(monkeypatch
     model = b"synthetic model"
     buffer = BytesIO()
     with tarfile.open(fileobj=buffer, mode="w") as bundle:
-        info = tarfile.TarInfo("fixture_infer/inference.json")
+        info = tarfile.TarInfo("fixture_onnx_infer/inference.json")
         info.size = len(model)
         bundle.addfile(info, BytesIO(model))
         extra = tarfile.TarInfo("../../unexpected")

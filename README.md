@@ -2,7 +2,7 @@
 
 FastAPI service that safely fetches Chosun.com articles and extracts article
 metadata and lesson-image URLs, then downloads and validates the selected image
-in memory. PaddleOCR reads Korean and English locally using verified native Paddle models.
+in memory. PaddleOCR reads Korean and English locally using verified PaddleOCR ONNX models.
 Lesson fields are classified from recognized text and geometry; absent or
 ambiguous fields stay unassigned. Historical results remain readable. Request
 images stay in memory.
@@ -1105,7 +1105,7 @@ also pass `ArticleFetchConfig` / `ImageDownloadConfig` directly to those service
 | `OCR_MAX_BYTES` | 10485760 (10 MiB) |
 | `OCR_MAX_PIXELS` | 4000000 |
 | `OCR_BACKEND` | paddleocr |
-| `OCR_TIMEOUT_MS` | 30000 |
+| `OCR_TIMEOUT_MS` | 60000 |
 | `OCR_MIN_CONFIDENCE` | 0.5 |
 
 The overall deadline is cooperative: a native OCR call or CPU worker cannot be
@@ -1418,7 +1418,7 @@ failed recognition leaves the saved result intact.
 
 Deploy this repository as a **Docker Web Service**, not Render's native Python
 runtime. Docker installs the pinned web/image/Firebase dependencies; inference
-runs locally through PaddleOCR and PaddlePaddle. `render.yaml` describes this same Docker
+runs locally through PaddleOCR and ONNX Runtime. `render.yaml` describes this same Docker
 approach with `plan: free`, `/health`, and conservative environment settings. It
 creates one web service with no disk, provisioned database, separate worker, or
 GPU. Manual/scheduled persistence requires external Firestore credentials. The
@@ -1436,7 +1436,7 @@ the build is not bit-for-bit reproducible against a frozen apt snapshot.
 
 The multi-stage `Dockerfile` builds pinned Python wheels, installs them in a slim
 runtime image, and runs as an unprivileged user with one Uvicorn worker. It does
-install PaddleOCR, PaddlePaddle, OpenCV, verified Korean/English model
+install PaddleOCR, ONNX Runtime, OpenCV, verified Korean/English model
 weights, and libgomp1. The image builds without any AI key.
 
 Models are downloaded and checksum-verified during the Docker build. Neither
@@ -1527,7 +1527,7 @@ triggers also require `SCRAPE_TRIGGER_TOKEN` as described above.
 | `PORT` | Render-selected port | Render automatically; leave unset |
 | `OCR_BACKEND` | `paddleocr` | Application default and Blueprint |
 | `OCR_MODEL_DIR` | `/app/.ocr-models/paddleocr` | Docker image and Blueprint |
-| `OCR_TIMEOUT_MS` | `30000` | Application default and Blueprint |
+| `OCR_TIMEOUT_MS` | `60000` | Application default and Blueprint |
 | `SCRAPE_MAX_CONCURRENT_REQUESTS` | `1` | Application default and Blueprint |
 | `SCRAPE_TIMEOUT_SECONDS` | `90` | Application default and Blueprint |
 | `OCR_MAX_PIXELS` | `4000000` | Application default and Blueprint |

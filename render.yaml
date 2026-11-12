@@ -20,7 +20,7 @@ services:
       - key: OCR_MODEL_DIR
         value: /app/.ocr-models/paddleocr
       - key: OCR_TIMEOUT_MS
-        value: "30000"
+        value: "60000"
       - key: SCRAPE_MAX_CONCURRENT_REQUESTS
         value: "1"
       - key: SCRAPE_TIMEOUT_SECONDS

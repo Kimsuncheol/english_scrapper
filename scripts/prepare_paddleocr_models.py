@@ -1,4 +1,4 @@
-"""Download and verify official native Paddle models at setup/build time only."""
+"""Download and verify official PaddleOCR ONNX models at setup/build time only."""
 
 import argparse
 from hashlib import sha256
@@ -28,7 +28,7 @@ def prepare(directory):
             staging = Path(temporary)
             archive = staging / "model.tar"
             digest, size = sha256(), 0
-            url = f"{BASE_URL}/{name}_infer.tar"
+            url = f"{BASE_URL}/{name}_onnx_infer.tar"
             with urlopen(url, timeout=60, context=ssl.create_default_context(cafile=certifi.where())) as response, archive.open("wb") as output:
                 for chunk in iter(lambda: response.read(1024 * 1024), b""):
                     size += len(chunk)
@@ -44,7 +44,7 @@ def prepare(directory):
                 # Read only named regular files; never extract archive paths,
                 # links, caches or arbitrary upstream files into the image.
                 for filename, expected in spec["files"].items():
-                    member = bundle.getmember(f"{name}_infer/{filename}")
+                    member = bundle.getmember(f"{name}_onnx_infer/{filename}")
                     if not member.isfile() or member.size > 32 * 1024 * 1024:
                         raise RuntimeError("Invalid PaddleOCR archive member")
                     with bundle.extractfile(member) as source:

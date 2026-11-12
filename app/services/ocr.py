@@ -40,7 +40,7 @@ class OCRConfig:
     min_confidence: float = 0.5
     max_pixels: int = 4_000_000
     max_bytes: int = 10 * 1024 * 1024
-    timeout_ms: int = 30_000
+    timeout_ms: int = 60_000
 
     def __post_init__(self):
         if not math.isfinite(self.min_confidence) or not 0 <= self.min_confidence <= 1:
@@ -56,7 +56,7 @@ class OCRConfig:
             min_confidence=float(os.getenv("OCR_MIN_CONFIDENCE", "0.5")),
             max_pixels=int(os.getenv("OCR_MAX_PIXELS", "4000000")),
             max_bytes=int(os.getenv("OCR_MAX_BYTES", str(10 * 1024 * 1024))),
-            timeout_ms=int(os.getenv("OCR_TIMEOUT_MS", "30000")),
+            timeout_ms=int(os.getenv("OCR_TIMEOUT_MS", "60000")),
         )
 
 

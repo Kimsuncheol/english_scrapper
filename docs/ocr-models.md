@@ -1,18 +1,21 @@
 # PaddleOCR models and deployment
 
-Production uses **PaddleOCR 3.7.0**, **PaddleX 3.7.2**, and CPU-only
-**PaddlePaddle 3.3.1**. It explicitly loads `PP-OCRv5_mobile_det` and
-`korean_PP-OCRv5_mobile_rec`. The Korean recognizer includes English and numbers.
-The response engine label is `paddleocr`; no RapidOCR or ONNX Runtime package is
-installed by production requirements. Historical RapidOCR/Tesseract payloads
-remain readable and their adapters remain available for compatibility tests.
+Production uses **PaddleOCR 3.7.0** and **PaddleX 3.7.2**, with their supported
+**ONNX Runtime CPU engine** (1.31.0 on Linux, 1.23.2 on Intel macOS). It explicitly
+loads `PP-OCRv5_mobile_det` and `korean_PP-OCRv5_mobile_rec` from official Paddle
+ONNX archives. The Korean recognizer includes English and numbers. The public
+engine label is `paddleocr`. RapidOCR and native PaddlePaddle are not installed
+by production requirements. Historical OCR payloads remain readable.
+
+The native Paddle backend passed Linux build inference but a real Render Free
+lesson exceeded its 30-second deadline; the synthetic build check also measured
+697 MiB peak per-process RSS. The default uses PaddleOCR's ONNX engine to reduce
+resource use, without changing the OCR library or enabling a paid plan.
 
 ## Setup
 
-Use Python 3.12 on Linux x86-64 (production) or a platform with an official
-PaddlePaddle wheel, such as Apple Silicon macOS. PaddlePaddle 3.3.1 does not
-publish Intel macOS wheels; native inference on an Intel Mac requires a supported
-Linux environment. Mocked adapter tests do not need PaddlePaddle installed.
+Use Python 3.12. Linux x86-64 is the production target; Intel macOS uses the
+ONNX Runtime 1.23.2 wheel. Mocked adapter tests do not require inference packages.
 
 ```sh
 .venv/bin/python -m pip install -r requirements.txt
@@ -31,26 +34,27 @@ requests do not fall back to a download, a different model, or English-only OCR.
 
 | Official archive | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `PP-OCRv5_mobile_det_infer.tar` | 4,935,680 | `50446e5d01ac2a73d5319c89513281f6578414c888c602f9af13f93feefffc58` |
-| `korean_PP-OCRv5_mobile_rec_infer.tar` | 13,680,640 | `a6261f800ad335aa6ef77b6f7c4dcedfd5e11b95f4d70982d41ee31c2ace5e66` |
+| `PP-OCRv5_mobile_det_onnx_infer.tar` | 4,843,520 | `781056046c9ed77a15c94681605db6a0f62317c2e9cce6931c71da2478d4bc30` |
+| `korean_PP-OCRv5_mobile_rec_onnx_infer.tar` | 13,537,280 | `568ed8b43a260adc9f484d92105e425ea8cddf8ce16940c177bc12864cfb0eb0` |
 
 Sources: [PaddleOCR recognition models](https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/module_usage/text_recognition.en.md),
 [official OCR pipeline](https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/pipeline_usage/OCR.en.md).
 Archives come from Paddle's `paddle-model-ecology.bj.bcebos.com` host, under
 `paddlex/official_inference_model/paddle3.0.0/`. Checksums pin the reviewed
-artifacts; they are not an upstream signature. PaddleOCR and PaddlePaddle use
+artifacts; they are not an upstream signature. PaddleOCR uses
 Apache-2.0; bundled license notices are copied into the Docker image.
 
 ## Runtime and deadlines
 
 One request runs at a time. Each image gets a fresh subprocess with CPU threads
 set to one, recognition batch size one, detector long side capped at 960 pixels,
-and MKL-DNN, document orientation, unwarping and textline orientation disabled.
-The subprocess calls the official `PaddleOCR.predict()` API. Paddle receives BGR
+and CPU memory arenas, document orientation, unwarping and textline orientation disabled.
+The subprocess calls the official `PaddleOCR.predict()` API with
+`engine="onnxruntime"` and CPU-only execution providers. Paddle receives BGR
 pixels; returned line polygons, text and confidence are normalized into the
 existing API schema in original image coordinates.
 
-`OCR_TIMEOUT_MS=30000` covers subprocess startup, imports, model initialization,
+`OCR_TIMEOUT_MS=60000` covers subprocess startup, imports, model initialization,
 recognition and result serialization. Timeout kills and reaps the child before
 the shared OCR lock is released, returning `504 ocr_recognition_failed`. Native
 initialization errors return `503 ocr_unavailable`; inference crashes return
@@ -62,7 +66,7 @@ images are written to disk. Native model memory is released when the child exits
 Docker installs libgomp1, libgl1 and libglib2.0-0, provisions verified models under
 `/app/.ocr-models/paddleocr`, and runs the offline real-inference smoke check
 before publishing the image. `/health` does not initialize PaddleOCR or spawn a
-worker. Use one Uvicorn worker and one concurrent request. Native Paddle has a
+worker. Use one Uvicorn worker and one concurrent request. PaddleOCR has a
 different memory profile from RapidOCR: build success does not prove that all
 images fit Render Free memory. No paid plan is enabled by this change.
 
@@ -84,3 +88,8 @@ ENABLE_TEST_SITE=false SCRAPE_ENABLED=false \
 
 The smoke check runs recognition twice. Its RSS figure is the maximum peak of
 one parent or child process, not combined service/container memory.
+
+A local Intel macOS offline smoke check with the official ONNX archives returned
+18 text regions on each synthetic-image pass (3.79 s and 3.05 s, including worker
+startup), with 273.2 MiB maximum per-process RSS. These are local observations,
+not a Render memory guarantee or an accuracy benchmark.

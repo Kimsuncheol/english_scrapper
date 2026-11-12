@@ -468,7 +468,7 @@ These are default server settings, not request-body options:
 | `OCR_MAX_BYTES` | 10485760 | OCR input byte cap |
 | `OCR_MAX_PIXELS` | 4000000 | OCR input pixel cap; stricter than image decoding |
 | `OCR_BACKEND` | paddleocr | Local Korean/English recognition; optional ollama backend |
-| `OCR_TIMEOUT_MS` | 30000 | Local inference deadline |
+| `OCR_TIMEOUT_MS` | 60000 | Local inference deadline |
 | `OCR_MIN_CONFIDENCE` | 0.5 | Low-confidence threshold |
 | `SCRAPE_TIMEOUT_SECONDS` | 90 | Pipeline deadline; excludes some persistence/HTTP overhead |
 | `SCRAPE_MAX_CONCURRENT_REQUESTS` | 1 | Process-wide active scrape admission limit |

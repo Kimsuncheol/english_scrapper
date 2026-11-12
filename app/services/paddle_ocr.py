@@ -1,4 +1,4 @@
-"""Native PaddleOCR CPU inference, isolated behind a killable per-image worker."""
+"""PaddleOCR CPU inference, isolated behind a killable per-image worker."""
 
 from dataclasses import asdict
 from io import BytesIO
@@ -42,7 +42,10 @@ def create_paddleocr_api(config):
         text_detection_model_dir=str(detector),
         text_recognition_model_name="korean_PP-OCRv5_mobile_rec",
         text_recognition_model_dir=str(recognizer),
-        device="cpu", engine="paddle_static", cpu_threads=1,
+        device="cpu", engine="onnxruntime", cpu_threads=1,
+        engine_config={"providers": ["CPUExecutionProvider"],
+                       "intra_op_num_threads": 1, "inter_op_num_threads": 1,
+                       "enable_cpu_mem_arena": False},
         enable_mkldnn=False, enable_hpi=False,
         use_doc_orientation_classify=False, use_doc_unwarping=False,
         use_textline_orientation=False, text_recognition_batch_size=1,
