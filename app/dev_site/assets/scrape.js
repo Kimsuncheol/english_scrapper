@@ -4,6 +4,10 @@ const form = document.getElementById("scrape-form");
 const submit = document.getElementById("scrape-submit");
 const status = document.getElementById("scrape-status");
 const result = document.getElementById("scrape-result");
+const organizedResult = document.createElement("section");
+organizedResult.setAttribute("aria-label", "Extracted lesson text");
+organizedResult.hidden = true;
+result.before(organizedResult);
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -14,6 +18,8 @@ form.addEventListener("submit", async (event) => {
   status.textContent = "Fetching article and running OCR. The first request may take longer…";
   result.hidden = true;
   result.textContent = "";
+  organizedResult.replaceChildren();
+  organizedResult.hidden = true;
   try {
     const response = await fetch("/api/v1/scrape", {
       method: "POST",
@@ -30,6 +36,28 @@ form.addEventListener("submit", async (event) => {
         status.textContent += " Configure FIREBASE_PROJECT_ID and ensure Firestore credentials are configured.";
       }
       return;
+    }
+    if (payload.content) {
+      organizedResult.hidden = false;
+      for (const section of payload.content.sections) {
+        const heading = document.createElement("h3");
+        heading.textContent = section.title;
+        const text = document.createElement("p");
+        text.className = "lesson-field-text";
+        text.textContent = section.text;
+        organizedResult.append(heading, text);
+      }
+      if (!payload.content.sections.length) {
+        const text = document.createElement("p");
+        text.className = "lesson-field-text";
+        text.textContent = payload.content.raw_text || "No readable text was found.";
+        organizedResult.append(text);
+      }
+      if (payload.content.needs_review) {
+        const review = document.createElement("p");
+        review.textContent = "Review the extracted text against the source image.";
+        organizedResult.append(review);
+      }
     }
     status.className = "success";
     const expression = payload.lesson?.fields?.expression?.text;

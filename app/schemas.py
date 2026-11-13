@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, computed_field, field_validator
 
 from app.services.urls import validate_article_url
 
@@ -109,6 +109,19 @@ class ProcessingStatus(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class ClientLessonSection(BaseModel):
+    key: str
+    title: str
+    text: str
+
+
+class ClientLessonContent(BaseModel):
+    sections: list[ClientLessonSection]
+    raw_text: str
+    source_image_url: HttpUrl
+    needs_review: bool
+
+
 class ScrapeResponse(BaseModel):
     article: ArticleMetadata
     lesson_image: LessonImageMetadata
@@ -116,6 +129,33 @@ class ScrapeResponse(BaseModel):
     ocr: OCRText
     lesson: LessonParsingResult
     processing: ProcessingStatus
+
+    @computed_field
+    @property
+    def content(self) -> ClientLessonContent:
+        """A renderable projection, recomputed for new and historical results.
+
+        Client-ready content is derived from validated OCR/lesson fields rather
+        than accepting a second, potentially stale copy from persisted JSON.
+        """
+        labels = (
+            ("expression", "Expression"),
+            ("korean_meaning", "Korean meaning"),
+            ("korean_explanation", "Explanation"),
+            ("english_dialogue", "English dialogue"),
+            ("korean_dialogue_translation", "Korean translation"),
+            ("vocabulary_notes", "Vocabulary"),
+            ("source_credit", "Source credit"),
+        )
+        sections = []
+        for key, title in labels:
+            field = getattr(self.lesson.fields, key)
+            if field is not None and field.text.strip():
+                sections.append(ClientLessonSection(key=key, title=title, text=field.text))
+        return ClientLessonContent(sections=sections, raw_text=self.ocr.raw_text,
+            source_image_url=self.lesson_image.url,
+            needs_review=self.processing.status != "completed" or self.ocr.status != "ok"
+                         or self.lesson.status != "structured")
 
 
 class ValidationIssue(BaseModel):

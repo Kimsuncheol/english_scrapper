@@ -597,3 +597,28 @@ This generation does not start the app, connect to Firestore, fetch publisher
 pages or initialize OCR. The example JSON is validated against `ScrapeResponse`;
 keep examples synthetic and do not copy complete publisher lesson content into
 repository documentation.
+
+## Client rendering contract
+
+`POST /api/v1/lessons/fetch` accepts `{"article_url":"https://www.chosun.com/national/nie/english/"}`
+and returns the newly extracted lesson directly, without requiring Firestore.
+It uses PaddleOCR on the selected lesson image, organizes the recognized text,
+and returns a `content` object alongside the existing `ocr` and `lesson` fields:
+
+```json
+{"content":{"sections":[{"key":"expression","title":"Expression","text":"Try another way"}],"raw_text":"Original OCR lines…","source_image_url":"https://images.chosun.com/lesson.png","needs_review":true}}
+```
+
+Render `content.sections` in array order using text nodes (`textContent` or the
+framework's escaped text binding). Section keys are expression, korean_meaning,
+korean_explanation, english_dialogue, korean_dialogue_translation, vocabulary_notes,
+and source_credit. Missing/uncertain fields are omitted; an empty array falls
+back to `content.raw_text`. Preserve line breaks in dialogue. `needs_review`
+reflects OCR and classification status; it does not certify recognition accuracy.
+`source_image_url` lets readers compare the original.
+
+The same projection appears on `POST /api/v1/scrape` and saved article results
+under `payload.content`. Saved results recompute the projection from their stored
+OCR/lesson fields; reads do not rerun OCR or upgrade old classification. The
+response adds fields without removing existing ones. Delivery uses the HTTP
+response to the requesting client; no push callback is needed.
