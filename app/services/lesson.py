@@ -202,6 +202,10 @@ def parse_lesson(ocr: OCRText, image_width: int | None = None, image_height: int
     if not anchors:
         expression = title_verified_expression(ocr, image_width, image_height, article_title, config)
         if expression is not None:
+            from app.services.series_layout import organize_series
+            organized = organize_series(ocr, lines, expression, config)
+            if organized is not None:
+                return organized
             return LessonParsingResult(status="partial", fields=LessonFields(expression=expression),
                 reasons=["The high-confidence image heading matches the series article title. Other unlabeled fields remain unassigned; review raw OCR."],
                 unassigned_region_indices=[i for i in all_indices if i not in expression.region_indices],
