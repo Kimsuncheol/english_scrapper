@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, Response
 
-from app.schemas import ErrorResponse, HealthResponse, ScrapeRequest, ScrapeResponse
+from app.schemas import ErrorResponse, HealthResponse, ScrapeRequest, ScrapeResponse, LessonFetchRequest
 from app.dependencies import get_store
 from app.services.saved import process_and_store
 
@@ -34,7 +34,7 @@ async def scrape(request: ScrapeRequest, response: Response, store=Depends(get_s
 
 
 @router.post('/api/v1/lessons/fetch', response_model=ScrapeResponse)
-async def fetch_public_lesson(request: ScrapeRequest):
+async def fetch_public_lesson(request: LessonFetchRequest):
     """Extract for a public reader without depending on persistent storage."""
     from urllib.parse import urlsplit
     from app.services.discovery import discover_articles
@@ -42,8 +42,16 @@ async def fetch_public_lesson(request: ScrapeRequest):
     from app.services.errors import ArticleFetchError
     url = request.article_url
     if urlsplit(str(url)).path.rstrip('/') == '/national/nie/english':
+        if request.issue_date is not None:
+            from app.services.dated_lesson import resolve_issue_date
+            url = await resolve_issue_date(request.issue_date)
+            return await scrape_article(url)
         urls = await discover_articles()
         if not urls:
             raise ArticleFetchError('series_empty', 'No English lessons were found in the section.', 404)
         url = urls[0]
+    if request.issue_date is not None:
+        from app.services.series import issue_date_from_url
+        if issue_date_from_url(url) != request.issue_date:
+            raise ArticleFetchError('article_date_mismatch', 'The article URL does not match issue_date.', 422)
     return await scrape_article(url)

@@ -622,3 +622,17 @@ under `payload.content`. Saved results recompute the projection from their store
 OCR/lesson fields; reads do not rerun OCR or upgrade old classification. The
 response adds fields without removing existing ones. Delivery uses the HTTP
 response to the requesting client; no push callback is needed.
+
+### Fetch a missed publication date
+
+`POST /api/v1/lessons/fetch` accepts an optional ISO `issue_date`:
+
+```json
+{"article_url":"https://www.chosun.com/national/nie/english/","issue_date":"2026-11-09"}
+```
+
+The server resolves the date from up to 100 publisher archive entries and runs
+OCR for that article. It never substitutes the latest article for a missing date.
+An absent date returns 404; a date outside the bounded search returns 422 (use
+the exact article URL). This endpoint returns extracted content without saving;
+`POST /api/v1/scrape` with the resolved article URL saves it idempotently.

@@ -21,6 +21,10 @@ class ScrapeRequest(BaseModel):
         return value
 
 
+class LessonFetchRequest(ScrapeRequest):
+    issue_date: date | None = None
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
 
