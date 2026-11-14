@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, computed_field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, computed_field, field_validator, model_validator
 
 from app.services.urls import validate_article_url
 
@@ -133,6 +133,22 @@ class ScrapeResponse(BaseModel):
     ocr: OCRText
     lesson: LessonParsingResult
     processing: ProcessingStatus
+
+    @model_validator(mode="after")
+    def organize_saved_ocr(self):
+        # Upgrade the read projection from existing pixels/regions, without
+        # outbound requests, model inference, or overwriting stored revisions.
+        if self.ocr.engine == "paddleocr" and self.lesson.method in {
+                "labeled_layout_v1", "series_title_verified_v1", "series_bilingual_layout_v1"}:
+            from app.services.lesson import parse_lesson
+            candidate = parse_lesson(self.ocr, self.lesson_image.width,
+                self.lesson_image.height, article_title=self.article.title)
+            if sum(f is not None for _, f in candidate.fields) > sum(f is not None for _, f in self.lesson.fields):
+                self.lesson = candidate
+                self.processing.lesson_status = candidate.status
+                self.processing.status = "partial"
+                self.processing.warnings = list(dict.fromkeys(self.processing.warnings + candidate.reasons))
+        return self
 
     @computed_field
     @property

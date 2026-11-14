@@ -23,9 +23,9 @@ def organize_series(ocr, lines, expression, config):
     starts = [(i, TURN.match(line.text)) for i, line in enumerate(body) if TURN.match(line.text)]
     en = [(i, match) for i, match in starts if not HANGUL.search(match[2])]
     ko = [(i, match) for i, match in starts if HANGUL.search(match[2])]
-    if (len(en) < 2 or len(ko) < 2 or [m[1] for _, m in en] != [m[1] for _, m in ko]
-            or en[-1][0] >= ko[0][0]):
+    if (len(en) < 2 or len(ko) < 2 or en[-1][0] >= ko[0][0]):
         return None
+    matching_speakers = [m[1] for _, m in en] == [m[1] for _, m in ko]
     # Reject extra languages inside the English run rather than treating them
     # as dialogue continuations. Korean translations may contain English names.
     english = body[en[0][0]:ko[0][0]]
@@ -43,7 +43,7 @@ def organize_series(ocr, lines, expression, config):
     # Vocabulary follows the final translated turn. A line containing an English
     # headword, a Korean gloss, and slash-separated entries provides a boundary.
     vocab = next((i for i in range(ko[-1][0]+1, source)
-                  if re.match(r"^[a-z][a-z '-]+\s+[가-힣]", body[i].text)
+                  if re.match(r"^[a-z][a-z '-]+\s*[~~을를의가-힣]", body[i].text)
                   and "/" in body[i].text), None)
     if vocab is None:
         return None
@@ -77,7 +77,14 @@ def organize_series(ocr, lines, expression, config):
 
     assign("korean_meaning", [meaning])
     assign("korean_explanation", before[1:])
-    assign("english_dialogue", english, turns=True)
+    if matching_speakers:
+        assign("english_dialogue", english, turns=True)
+    elif len(en) + 1 == len(ko):
+        # A missed speaker marker must not hide otherwise readable English.
+        # Preserve visual lines rather than inventing a turn or joining speakers.
+        assign("english_dialogue", english, turns=True)
+        if "english_dialogue" in fields:
+            fields["english_dialogue"].text = "\n".join(line.text for line in english)
     assign("korean_dialogue_translation", translated, turns=True)
     assign("vocabulary_notes", body[vocab:source])
     assign("source_credit", [body[source]])

@@ -201,6 +201,10 @@ def parse_lesson(ocr: OCRText, image_width: int | None = None, image_height: int
     anchors = [line for line in lines if line.heading]
     if not anchors:
         expression = title_verified_expression(ocr, image_width, image_height, article_title, config)
+        if expression is None and ocr.engine == "paddleocr":
+            from dataclasses import replace
+            expression = title_verified_expression(ocr, image_width, image_height,
+                article_title, replace(config, title_size_ratio=1.15))
         if expression is not None:
             from app.services.series_layout import organize_series
             organized = organize_series(ocr, lines, expression, config)

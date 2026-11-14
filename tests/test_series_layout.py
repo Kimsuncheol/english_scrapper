@@ -57,3 +57,26 @@ def test_uncertain_content_is_not_promoted_to_a_field():
     assert result.fields.english_dialogue is None
     assert 5 in result.unassigned_region_indices
     assert result.fields.korean_meaning is not None
+
+
+def test_joined_vocabulary_gloss_does_not_hide_all_sections():
+    ocr = lesson()
+    ocr.regions[10].text = 'puzzle퍼즐/tricky까다로운'
+    result = parse(ocr)
+    assert result.fields.korean_meaning is not None
+    assert result.fields.english_dialogue is not None
+    assert result.fields.vocabulary_notes.text == 'puzzle퍼즐/tricky까다로운'
+
+
+def test_saved_old_projection_is_organized_from_existing_ocr():
+    from app.schemas import ScrapeResponse
+    ocr = lesson()
+    value = ScrapeResponse(article={'url':'https://www.chosun.com/lesson/',
+        'title':'[스피킹이 강해지는 영어] Try another way'},
+        lesson_image={'url':'https://images.chosun.com/lesson.png','width':700,'height':1000},
+        ocr=ocr, lesson={'status':'unparsed'},
+        processing={'status':'partial','completed_stages':[], 'ocr_status':'ok',
+                    'lesson_status':'unparsed','elapsed_ms':1})
+    assert len(value.content.sections) == 7
+    assert value.ocr == ocr
+    assert value.lesson.fields.korean_meaning.text == '다른 방법을 시도하다'
