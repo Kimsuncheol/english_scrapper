@@ -1,9 +1,8 @@
 name: Daily Chosun lesson scrape
 on:
   schedule:
-    # Match the server's default 06:00 Asia/Seoul; align if env changes.
-    - cron: "0 6 * * 1-5"
-      timezone: Asia/Seoul
+    # 23:00 Asia/Seoul, Monday through Friday (14:00 UTC).
+    - cron: "0 14 * * 1-5"
   workflow_dispatch:
 permissions:
   contents: read
@@ -12,17 +11,11 @@ concurrency:
   cancel-in-progress: false
 jobs:
   wake-and-scrape:
-    if: ${{ vars.SCRAPE_ENABLED == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Wake service and wait for persisted results
-        env:
-          SCRAPE_BASE_URL: ${{ vars.SCRAPE_BASE_URL }}
-          SCRAPE_TRIGGER_TOKEN: ${{ secrets.SCRAPE_TRIGGER_TOKEN }}
-        # One daily invocation handles cold-start retries and resumes interrupted
-        # jobs through the idempotent trigger. Never enable shell tracing here.
-        run: python3 scripts/trigger_daily.py
+      - name: Fetch and verify the latest published expression
+        run: python3 scripts/check_latest.py

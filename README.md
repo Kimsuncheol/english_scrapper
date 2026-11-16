@@ -1750,3 +1750,13 @@ Each item includes `article_url`, `title`, `expression`, and `issue_date`.
 It includes untranscribed entries and never starts scraping or AI processing.
 Saved detail remains available through `GET /api/v1/articles/{id}`; an
 unprocessed catalog entry may have no saved article yet.
+
+## Latest expression schedule
+
+The Daily Chosun lesson scrape workflow runs Monday–Friday at 23:00 Asia/Seoul
+(`0 14 * * 1-5` UTC). It invokes the public `/api/v1/series/check` pipeline,
+which discovers the newest publisher-listed expression and persists its OCR result.
+It verifies the returned expression and retries cold starts up to three times.
+This bounded latest-series job does not require the disabled historical daily
+batch settings or a trigger token. Run the workflow manually to catch up immediately.
+GitHub schedules are best-effort and may start late.
